@@ -1,0 +1,7 @@
+killbill-kintsugi-plugin 0.1.0
+---------------------------------------
+
+* Initial release: invoice plugin delegating tax to Kintsugi L2 API
+* HMAC-authenticated calls to `/killbill/tax/estimate` and `/commit`
+* Per-tenant config via `uploadPluginConfig/killbill-kintsugi`
+* Retry on transient failures (`InvoicePluginApiRetryException`)

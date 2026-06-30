@@ -29,8 +29,14 @@ The HMAC secret is configured in both places: Kill Bill plugin tenant config **a
 
 - JDK 11+
 - Maven 3.9+ (build from source) or a release JAR
-- Kill Bill 0.24.x with invoice plugin support
+- Kill Bill **0.24.x** with invoice plugin support
 - An active **Kintsugi** account with Kill Bill connected and tax engine enabled
+
+### Kill Bill compatibility
+
+| Plugin version | Kill Bill |
+|----------------|-----------|
+| 0.1.x          | 0.24.x    |
 
 ## Build
 
@@ -38,16 +44,26 @@ The HMAC secret is configured in both places: Kill Bill plugin tenant config **a
 mvn clean test package
 ```
 
-Artifact: `target/killbill-kintsugi-plugin-0.1.0-SNAPSHOT.jar`
+Artifact: `target/killbill-kintsugi-plugin-0.1.0.jar`
 
 ## Install on Kill Bill
 
+### Option A: KPM (recommended when a release is published)
+
+```bash
+kpm install_java_plugin killbill-kintsugi --from-source-file=target/killbill-kintsugi-plugin-0.1.0.jar
+```
+
+Or install a published artifact once available on Maven Central / your artifact repository — see [Kill Bill KPM](https://docs.killbill.io/latest/kpm).
+
+### Option B: Manual copy
+
 1. Copy the JAR into Kill Bill's Java plugin layout, e.g.  
-   `plugins/java/killbill-kintsugi/<version>/killbill-kintsugi-plugin-*.jar`
+   `/var/lib/killbill/bundles/plugins/java/killbill-kintsugi/0.1.0/killbill-kintsugi-plugin-*.jar`
 2. Set the default version symlink if your deployment uses one.
 3. Restart Kill Bill and confirm the plugin is `RUNNING` with `InvoicePluginApi` in `GET /1.0/kb/pluginsInfo`.
 
-See [Kill Bill plugin installation](https://docs.killbill.io/latest/plugin_installation) and [KPM](https://docs.killbill.io/latest/kpm) for your environment.
+See [Kill Bill plugin installation](https://docs.killbill.io/latest/plugin_installation).
 
 ## Tenant configuration
 
@@ -114,4 +130,4 @@ Check Kill Bill logs for `Kintsugi returned N tax line(s)` from `KintsugiInvoice
 
 ## License
 
-See repository license file when published.
+Apache License 2.0 — see [LICENSE](LICENSE).

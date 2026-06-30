@@ -14,4 +14,4 @@ jobs:
         with:
           distribution: temurin
           java-version: '11'
-      - run: mvn -B clean test
+      - run: mvn -B clean verify
