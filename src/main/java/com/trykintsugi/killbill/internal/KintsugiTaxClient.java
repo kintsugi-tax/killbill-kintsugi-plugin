@@ -130,7 +130,10 @@ public final class KintsugiTaxClient {
             final String accountId,
             final boolean dryRun,
             final ArrayNode lineItems,
-            final ObjectNode shipTo) {
+            final ObjectNode shipTo,
+            final ObjectNode billTo,
+            final ObjectNode customer,
+            final String transactionDate) {
         final ObjectNode root = MAPPER.createObjectNode();
         root.put("id", requestId);
         root.put("currency_code", currency);
@@ -138,7 +141,10 @@ public final class KintsugiTaxClient {
         document.put("id", invoiceId);
         document.put("account_id", accountId);
         document.put("dry_run", dryRun);
+        document.put("transaction_date", transactionDate);
         document.set("ship_to", shipTo);
+        document.set("bill_to", billTo);
+        document.set("customer", customer);
         document.set("line_items", lineItems);
         root.set("documents", MAPPER.createArrayNode().add(document));
         return root;

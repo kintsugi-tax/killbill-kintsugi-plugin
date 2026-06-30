@@ -1,3 +1,9 @@
+killbill-kintsugi-plugin 0.1.1
+---------------------------------------
+
+* Mosaic wire format: customer, bill_to, transaction_date, line item kind/quantity
+* Platform enriches plan_name → external_product_id via `KillBillTaxEstimationService`
+
 killbill-kintsugi-plugin 0.1.0
 ---------------------------------------
 

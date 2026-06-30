@@ -25,7 +25,7 @@
 
     <groupId>com.trykintsugi</groupId>
     <artifactId>killbill-kintsugi-plugin</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <packaging>bundle</packaging>
     <name>Kill Bill Kintsugi Tax Plugin</name>
     <description>Invoice plugin delegating tax calculation to Kintsugi</description>

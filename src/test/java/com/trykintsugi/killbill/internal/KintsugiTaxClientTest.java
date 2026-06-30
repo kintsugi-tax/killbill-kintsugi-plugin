@@ -42,12 +42,19 @@ class KintsugiTaxClientTest {
         final ObjectNode shipTo = MAPPER.createObjectNode();
         shipTo.put("country", "US");
 
+        final ObjectNode billTo = MAPPER.createObjectNode();
+        billTo.put("country", "US");
+        final ObjectNode customer = MAPPER.createObjectNode();
+        customer.put("external_id", "acc-1");
+
         final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
-                "req-1", "USD", "inv-1", "acc-1", true, lineItems, shipTo);
+                "req-1", "USD", "inv-1", "acc-1", true, lineItems, shipTo, billTo, customer,
+                "2026-01-15T00:00:00.000Z");
         final ObjectNode document = (ObjectNode) root.path("documents").get(0);
         assertEquals("inv-1", document.path("id").asText());
         assertEquals("acc-1", document.path("account_id").asText());
         assertEquals(true, document.path("dry_run").asBoolean());
+        assertEquals("acc-1", document.path("customer").path("external_id").asText());
     }
 
     @Test

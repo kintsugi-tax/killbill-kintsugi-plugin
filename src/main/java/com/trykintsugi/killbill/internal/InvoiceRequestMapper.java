@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-
 package com.trykintsugi.killbill.internal;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.joda.time.LocalDate;
 import org.killbill.billing.account.api.Account;
 import org.killbill.billing.invoice.api.Invoice;
 import org.killbill.billing.invoice.api.InvoiceItem;
@@ -28,11 +28,10 @@ import org.killbill.billing.invoice.api.InvoiceItemType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Maps Kill Bill invoice state to Kintsugi estimate request JSON. */
+/** Maps Kill Bill invoice state to Kintsugi Mosaic tax estimate request JSON. */
 public final class InvoiceRequestMapper {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -61,6 +60,8 @@ public final class InvoiceRequestMapper {
             final ObjectNode line = MAPPER.createObjectNode();
             line.put("external_id", externalId);
             line.put("amount", formatAmount(item.getAmount()));
+            line.put("quantity", formatQuantity(item.getQuantity()));
+            line.put("kind", "item");
             if (item.getDescription() != null) {
                 line.put("description", item.getDescription());
             }
@@ -72,12 +73,10 @@ public final class InvoiceRequestMapper {
             }
             if (item.getPlanName() != null) {
                 line.put("plan_name", item.getPlanName());
+                line.put("external_product_id", item.getPlanName());
             }
             if (item.getPrettyProductName() != null) {
                 line.put("product_name", item.getPrettyProductName());
-            }
-            if (item.getPlanName() != null) {
-                line.put("external_product_id", item.getPlanName());
             } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
                 line.put("product_category", EXTERNAL_CHARGE_CATEGORY);
                 line.put("product_subcategory", EXTERNAL_CHARGE_SUBCATEGORY);
@@ -86,6 +85,10 @@ public final class InvoiceRequestMapper {
         }
 
         final ObjectNode shipTo = accountToAddress(account);
+        final ObjectNode billTo = accountToAddress(account);
+        final ObjectNode customer = accountToCustomer(account);
+        final String transactionDate = formatInvoiceDate(invoice);
+
         final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
                 UUID.randomUUID().toString(),
                 invoice.getCurrency().toString(),
@@ -93,7 +96,10 @@ public final class InvoiceRequestMapper {
                 invoice.getAccountId().toString(),
                 dryRun,
                 lineItems,
-                shipTo);
+                shipTo,
+                billTo,
+                customer,
+                transactionDate);
 
         if (tenantId != null && !tenantId.isBlank()) {
             root.put("tenant_id", tenantId);
@@ -151,10 +157,40 @@ public final class InvoiceRequestMapper {
         return address;
     }
 
+    private static ObjectNode accountToCustomer(final Account account) {
+        final ObjectNode customer = MAPPER.createObjectNode();
+        final String externalId = account.getExternalKey() != null
+                ? account.getExternalKey()
+                : account.getId().toString();
+        customer.put("external_id", externalId);
+        if (account.getEmail() != null) {
+            customer.put("email", account.getEmail());
+        }
+        if (account.getName() != null) {
+            customer.put("name", account.getName());
+        }
+        return customer;
+    }
+
+    static String formatInvoiceDate(final Invoice invoice) {
+        final LocalDate invoiceDate = invoice.getInvoiceDate();
+        if (invoiceDate == null) {
+            return LocalDate.now().toString();
+        }
+        return invoiceDate.toString();
+    }
+
     static String formatAmount(final BigDecimal amount) {
         if (amount == null) {
             return "0.00";
         }
         return amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    static String formatQuantity(final BigDecimal quantity) {
+        if (quantity == null) {
+            return "1";
+        }
+        return quantity.stripTrailingZeros().toPlainString();
     }
 }
