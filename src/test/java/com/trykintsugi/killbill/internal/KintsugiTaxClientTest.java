@@ -1,0 +1,55 @@
+package com.trykintsugi.killbill.internal;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+class KintsugiTaxClientTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void buildEstimateRequestIncludesDocumentFields() throws Exception {
+        final ArrayNode lineItems = MAPPER.createArrayNode();
+        final ObjectNode line = MAPPER.createObjectNode();
+        line.put("external_id", "line-1");
+        line.put("amount", "100.00");
+        lineItems.add(line);
+        final ObjectNode shipTo = MAPPER.createObjectNode();
+        shipTo.put("country", "US");
+
+        final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
+                "req-1", "USD", "inv-1", "acc-1", true, lineItems, shipTo);
+        final ObjectNode document = (ObjectNode) root.path("documents").get(0);
+        assertEquals("inv-1", document.path("id").asText());
+        assertEquals("acc-1", document.path("account_id").asText());
+        assertEquals(true, document.path("dry_run").asBoolean());
+    }
+
+    @Test
+    void parseTaxLinesMapsResponse() throws Exception {
+        final String json = "{\"documents\":[{\"line_items\":["
+                + "{\"external_id\":\"line-1\",\"tax_amount\":\"8.25\",\"rate\":\"8.25\"}"
+                + "]}]}";
+        final List<KintsugiTaxClient.TaxLineResult> lines = KintsugiTaxClient.parseTaxLines(json);
+        assertEquals(1, lines.size());
+        assertEquals("line-1", lines.get(0).lineExternalId());
+        assertEquals(new BigDecimal("8.25"), lines.get(0).taxAmount());
+    }
+
+    @Test
+    void hmacIsDeterministic() throws Exception {
+        final byte[] body = "{\"id\":\"x\"}".getBytes();
+        final String sig1 = KintsugiTaxClient.hmacSha256Hex("secret", body);
+        final String sig2 = KintsugiTaxClient.hmacSha256Hex("secret", body);
+        assertEquals(sig1, sig2);
+        assertFalse(sig1.isEmpty());
+    }
+}
