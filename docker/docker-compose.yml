@@ -1,0 +1,39 @@
+# Local Kill Bill + Kaui stack for plugin development.
+
+services:
+  killbill:
+    image: killbill/killbill:0.24.9
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - killbill-plugins:/var/lib/killbill/bundles/plugins/java
+    environment:
+      - KILLBILL_DAO_URL=jdbc:mysql://db:3306/killbill
+      - KILLBILL_DAO_USER=killbill
+      - KILLBILL_DAO_PASSWORD=killbill
+    depends_on:
+      - db
+  db:
+    image: killbill/mariadb:0.24
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=killbill
+      - MYSQL_USER=killbill
+      - MYSQL_PASSWORD=killbill
+  kaui:
+    image: killbill/kaui:3.0.9
+    ports:
+      - "9090:8080"
+    environment:
+      - KAUI_CONFIG_DAO_URL=jdbc:mysql://db:3306/kaui
+      - KAUI_CONFIG_DAO_USER=kaui
+      - KAUI_CONFIG_DAO_PASSWORD=kaui
+      - KAUI_KILLBILL_URL=http://killbill:8080
+    depends_on:
+      - db
+      - killbill
+
+volumes:
+  killbill-plugins:

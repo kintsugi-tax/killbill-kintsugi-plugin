@@ -1,0 +1,85 @@
+/*
+ * Copyright 2026 Kintsugi Technologies, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+package com.trykintsugi.killbill;
+
+import org.killbill.billing.invoice.plugin.api.InvoicePluginApi;
+import org.killbill.billing.osgi.api.Healthcheck;
+import org.killbill.billing.osgi.api.OSGIPluginProperties;
+import org.killbill.billing.osgi.libs.killbill.KillbillActivatorBase;
+import org.killbill.billing.plugin.api.notification.PluginConfigurationEventHandler;
+import org.killbill.billing.plugin.core.resources.jooby.PluginApp;
+import org.killbill.billing.plugin.core.resources.jooby.PluginAppBuilder;
+import org.osgi.framework.BundleContext;
+
+import javax.servlet.Servlet;
+import javax.servlet.http.HttpServlet;
+import java.util.Hashtable;
+
+/** OSGi bundle activator — registers the Kintsugi invoice plugin. */
+public final class KintsugiActivator extends KillbillActivatorBase {
+
+    public static final String PLUGIN_NAME = "killbill-kintsugi";
+
+    private KintsugiConfigurationHandler configurationHandler;
+
+    @Override
+    public void start(final BundleContext context) throws Exception {
+        super.start(context);
+
+        configurationHandler = new KintsugiConfigurationHandler(PLUGIN_NAME, killbillAPI);
+        configurationHandler.setDefaultConfigurable(
+                configurationHandler.createConfigurable(new java.util.Properties()));
+
+        final KintsugiHealthcheck healthcheck = new KintsugiHealthcheck(configurationHandler);
+        registerHealthcheck(context, healthcheck);
+
+        final InvoicePluginApi invoicePluginApi = new KintsugiInvoicePluginApi(
+                killbillAPI, configProperties, null, configurationHandler);
+        registerInvoicePluginApi(context, invoicePluginApi);
+
+        final PluginApp pluginApp = new PluginAppBuilder(
+                PLUGIN_NAME, killbillAPI, dataSource, super.clock, configProperties)
+                .withRouteClass(KintsugiHealthcheckServlet.class)
+                .withService(healthcheck)
+                .build();
+        final HttpServlet httpServlet = PluginApp.createServlet(pluginApp);
+        registerServlet(context, httpServlet);
+
+        final PluginConfigurationEventHandler configHandler =
+                new PluginConfigurationEventHandler(configurationHandler);
+        dispatcher.registerEventHandlers(configHandler);
+    }
+
+    private void registerInvoicePluginApi(final BundleContext context, final InvoicePluginApi api) {
+        final Hashtable<String, String> props = new Hashtable<>();
+        props.put(OSGIPluginProperties.PLUGIN_NAME_PROP, PLUGIN_NAME);
+        registrar.registerService(context, InvoicePluginApi.class, api, props);
+    }
+
+    private void registerHealthcheck(final BundleContext context, final Healthcheck healthcheck) {
+        final Hashtable<String, String> props = new Hashtable<>();
+        props.put(OSGIPluginProperties.PLUGIN_NAME_PROP, PLUGIN_NAME);
+        registrar.registerService(context, Healthcheck.class, healthcheck, props);
+    }
+
+    private void registerServlet(final BundleContext context, final Servlet servlet) {
+        final Hashtable<String, String> props = new Hashtable<>();
+        props.put(OSGIPluginProperties.PLUGIN_NAME_PROP, PLUGIN_NAME);
+        registrar.registerService(context, Servlet.class, servlet, props);
+    }
+}
