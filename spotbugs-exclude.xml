@@ -22,4 +22,8 @@
     <Class name="com.trykintsugi.killbill.KintsugiInvoicePluginApi"/>
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
+  <Match>
+    <Class name="com.trykintsugi.killbill.KintsugiHealthcheck"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
 </FindBugsFilter>

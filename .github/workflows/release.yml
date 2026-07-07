@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - name: Build plugin
+        run: mvn -B clean verify
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          JAR="target/kintsugi-plugin-${VERSION}.jar"
+          if [[ ! -f "${JAR}" ]]; then
+            echo "Expected ${JAR} not found" >&2
+            ls -la target/ >&2
+            exit 1
+          fi
+          gh release upload "${GITHUB_REF_NAME}" "${JAR}" --clobber

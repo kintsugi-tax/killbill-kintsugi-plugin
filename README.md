@@ -35,17 +35,17 @@ The HMAC secret must match on both the Kill Bill plugin config and your Kintsugi
 ## Build
 
 ```bash
-mvn clean test package
+mvn clean verify
 ```
 
-Artifact: `target/killbill-kintsugi-plugin-0.1.0.jar`
+Artifact: `target/kintsugi-plugin-0.1.0.jar`
 
 ## Install on Kill Bill
 
 ### Option A: KPM (recommended when a release is published)
 
 ```bash
-kpm install_java_plugin killbill-kintsugi --from-source-file=target/killbill-kintsugi-plugin-0.1.0.jar
+kpm install_java_plugin kintsugi --from-source-file=target/kintsugi-plugin-0.1.0.jar
 ```
 
 Or install a published artifact once available on Maven Central — see [Kill Bill KPM](https://docs.killbill.io/latest/kpm).
@@ -53,7 +53,7 @@ Or install a published artifact once available on Maven Central — see [Kill Bi
 ### Option B: Manual copy
 
 1. Copy the JAR into Kill Bill's Java plugin layout, e.g.  
-   `/var/lib/killbill/bundles/plugins/java/killbill-kintsugi/0.1.0/killbill-kintsugi-plugin-*.jar`
+   `/var/lib/killbill/bundles/plugins/java/killbill-kintsugi/0.1.0/kintsugi-plugin-0.1.0.jar`
 2. Set the default version symlink if your deployment uses one.
 3. Restart Kill Bill and confirm the plugin is `RUNNING` with `InvoicePluginApi` in `GET /1.0/kb/pluginsInfo`.
 
@@ -113,12 +113,41 @@ After configuration, generate or dry-run an invoice for an account with taxable 
 
 Check Kill Bill logs for `Kintsugi returned N tax line(s)` from `KintsugiInvoicePluginApi`.
 
+### Healthcheck
+
+```bash
+curl -u '<killbill-admin-user>:<killbill-admin-password>' \
+  -H 'X-Killbill-ApiKey: <tenant-api-key>' \
+  -H 'X-Killbill-ApiSecret: <tenant-api-secret>' \
+  'https://<killbill-host>/plugins/killbill-kintsugi/healthcheck'
+```
+
+Returns healthy when the plugin is loaded and tenant config is present.
+
+## Local development
+
+See [docker/README.md](docker/README.md) for a Kill Bill + Kaui stack and `./docker/install-plugin.sh`.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---------|----------------|
+| No `TAX` lines on invoice | Tax engine not enabled in Kintsugi, or ship-to address has no tax obligation |
+| `401` / `403` from Kintsugi | HMAC mismatch — verify the same secret on plugin config and Kintsugi connection |
+| `Kintsugi plugin not configured` in logs | Missing `uploadPluginConfig/killbill-kintsugi` for the tenant |
+| Connection timeout | Kill Bill cannot reach `kintsugiUrl` (DNS, firewall, or Docker networking) |
+| Healthcheck unhealthy | Plugin config missing `kintsugiUrl` or `hmacSecret` for the tenant |
+
 ## Behavior notes
 
 - **HTTP/1.1**: outbound calls use HTTP/1.1 so request bodies match HMAC signatures reliably.
 - **External charges**: lines without a plan name use a default product category.
 - **Retries**: transient failures raise `InvoicePluginApiRetryException` (1m / 5m / 15m backoff).
 - **Zero tax**: `$0` tax lines are not added to the invoice.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 
