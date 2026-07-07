@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: killbill/gh-actions-shared/.github/workflows/ci.yml@main
+    with:
+      test-profile-matrix: '[ "travis" ]'
+      maven_args: >-
+        -Dmaven.test.redirectTestOutputToFile=true
+        -Dcheck.skip-dependency=true
+        -Dcheck.skip-dependency-scope=true
+        -Dcheck.skip-dependency-versions=true
+        -Dcheck.skip-duplicate-finder=true
+        -Dcheck.skip-enforcer=true
+        -Dcheck.skip-rat=true
