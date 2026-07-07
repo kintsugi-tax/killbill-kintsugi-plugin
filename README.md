@@ -1,5 +1,7 @@
 # Kill Bill Kintsugi Tax Plugin
 
+> **Canonical repository:** development has moved to [killbill/killbill-kintsugi-plugin](https://github.com/killbill/killbill-kintsugi-plugin). See [PR #1](https://github.com/killbill/killbill-kintsugi-plugin/pull/1) for the upstream handover.
+
 Kill Bill **invoice plugin** that delegates sales tax to [Kintsugi](https://trykintsugi.com) during invoice generation.
 
 ## What it does
