@@ -99,7 +99,7 @@ public final class InvoiceRequestMapper {
         }
 
         final ObjectNode shipTo = resolveAddress(account, metadata);
-        final ObjectNode billTo = shipTo.deepCopy();
+        final ObjectNode billTo = accountToAddress(account);
         final ObjectNode customer = accountToCustomer(account, metadata);
         final String transactionDate = formatInvoiceDate(invoice);
 
