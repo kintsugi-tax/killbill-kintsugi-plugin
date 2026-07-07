@@ -186,4 +186,89 @@ public class TestInvoiceRequestMapper {
         Assert.assertEquals(line.path("product_name").asText(), "Basic");
         Assert.assertFalse(line.has("product_category"));
     }
+
+    @Test(groups = "fast")
+    public void testTaxMetadataEnrichesCustomerAndLines() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID itemId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem item = Mockito.mock(InvoiceItem.class);
+        Mockito.when(item.getId()).thenReturn(itemId);
+        Mockito.when(item.getAmount()).thenReturn(new BigDecimal("10.00"));
+        Mockito.when(item.getQuantity()).thenReturn(BigDecimal.ONE);
+        Mockito.when(item.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(item));
+
+        final AccountTaxMetadata metadata = AccountTaxMetadata.builder()
+                .taxExempt(true)
+                .customerUsageType("G")
+                .taxCodeByInvoiceItemId(Map.of(itemId, "P0000000"))
+                .build();
+
+        final ObjectNode request = InvoiceRequestMapper.toEstimateRequest(
+                invoice, account, true, null, metadata);
+        final ObjectNode document = (ObjectNode) request.path("documents").get(0);
+        final ObjectNode customer = (ObjectNode) document.path("customer");
+
+        Assert.assertTrue(customer.path("exempt").asBoolean());
+        Assert.assertEquals(customer.path("entity_use_code").asText(), "G");
+        Assert.assertEquals(
+                document.path("line_items").get(0).path("tax_code").asText(),
+                "P0000000");
+    }
+
+    @Test(groups = "fast")
+    public void testAviateShipToAddressOverridesAccountAddress() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID itemId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+        Mockito.when(account.getCountry()).thenReturn("US");
+        Mockito.when(account.getPostalCode()).thenReturn("78701");
+
+        final InvoiceItem item = Mockito.mock(InvoiceItem.class);
+        Mockito.when(item.getId()).thenReturn(itemId);
+        Mockito.when(item.getAmount()).thenReturn(new BigDecimal("10.00"));
+        Mockito.when(item.getQuantity()).thenReturn(BigDecimal.ONE);
+        Mockito.when(item.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(item));
+
+        final AccountTaxMetadata metadata = AccountTaxMetadata.builder()
+                .source(AccountTaxMetadata.Source.AVIATE_BILLING_ACCOUNT)
+                .companyName("CloudSprout Inc.")
+                .taxRegistrationNumber("12-3456789")
+                .shipToAddress(new TaxAddress(
+                        "100 Main Street", null, "San Francisco", "CA", "US", "94105"))
+                .build();
+
+        final ObjectNode request = InvoiceRequestMapper.toEstimateRequest(
+                invoice, account, true, null, metadata);
+        final ObjectNode document = (ObjectNode) request.path("documents").get(0);
+
+        Assert.assertEquals(document.path("ship_to").path("postal_code").asText(), "94105");
+        Assert.assertEquals(document.path("customer").path("name").asText(), "CloudSprout Inc.");
+        Assert.assertEquals(
+                document.path("customer").path("tax_registration_number").asText(),
+                "12-3456789");
+    }
 }

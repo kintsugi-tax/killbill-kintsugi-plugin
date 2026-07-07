@@ -17,9 +17,12 @@
 package com.trykintsugi.killbill;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.trykintsugi.killbill.internal.AccountTaxMetadata;
 import com.trykintsugi.killbill.internal.InvoiceRequestMapper;
+import com.trykintsugi.killbill.internal.InvoiceTaxIdempotency;
 import com.trykintsugi.killbill.internal.KintsugiTaxClient;
 import com.trykintsugi.killbill.internal.TaxItemMapper;
+import com.trykintsugi.killbill.internal.TaxMetadataResolver;
 import org.joda.time.Period;
 import org.killbill.billing.account.api.Account;
 import org.killbill.billing.invoice.api.Invoice;
@@ -31,7 +34,6 @@ import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
 import org.killbill.billing.payment.api.PluginProperty;
 import org.killbill.billing.plugin.api.invoice.PluginInvoicePluginApi;
 import org.killbill.billing.tenant.api.Tenant;
-import org.killbill.billing.util.callcontext.TenantContext;
 import org.killbill.clock.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,7 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             Period.minutes(15));
 
     private final KintsugiConfigurationHandler configurationHandler;
+    private final TaxMetadataResolver taxMetadataResolver;
 
     public KintsugiInvoicePluginApi(
             final OSGIKillbillAPI killbillAPI,
@@ -58,6 +61,7 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             final KintsugiConfigurationHandler configurationHandler) {
         super(killbillAPI, configProperties, clock);
         this.configurationHandler = configurationHandler;
+        this.taxMetadataResolver = new TaxMetadataResolver(killbillAPI);
     }
 
     @Override
@@ -76,14 +80,31 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             return emptyResult();
         }
 
+        if (InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice)) {
+            LOGGER.debug(
+                    "Skipping Kintsugi tax for invoice account {} — taxable lines already have TAX items",
+                    invoice.getAccountId());
+            return emptyResult();
+        }
+
         try {
             final Account account = getAccount(invoice.getAccountId(), invoiceContext);
-            final String tenantApiKey = resolveTenantApiKey(invoiceContext);
+            final Tenant tenant = killbillAPI.getTenantUserApi().getTenantById(invoiceContext.getTenantId());
+            final String tenantApiKey = tenant.getApiKey();
+            final AccountTaxMetadata taxMetadata = taxMetadataResolver.resolve(
+                    invoice,
+                    account,
+                    properties,
+                    invoiceContext,
+                    config,
+                    tenantApiKey,
+                    tenant.getApiSecret());
             final ObjectNode requestBody = InvoiceRequestMapper.toEstimateRequest(
                     invoice,
                     account,
                     dryRun,
-                    invoiceContext.getTenantId() != null ? invoiceContext.getTenantId().toString() : null);
+                    invoiceContext.getTenantId() != null ? invoiceContext.getTenantId().toString() : null,
+                    taxMetadata);
 
             final KintsugiTaxClient client = new KintsugiTaxClient(
                     config.getKintsugiUrl(),
@@ -108,11 +129,6 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             LOGGER.warn("Kintsugi tax estimate failed for tenant {}: {}", invoiceContext.getTenantId(), e.getMessage());
             throw new InvoicePluginApiRetryException(e, RETRY_SCHEDULE);
         }
-    }
-
-    private String resolveTenantApiKey(final TenantContext tenantContext) throws Exception {
-        final Tenant tenant = killbillAPI.getTenantUserApi().getTenantById(tenantContext.getTenantId());
-        return tenant.getApiKey();
     }
 
     private static KintsugiAdditionalItemsResult emptyResult() {

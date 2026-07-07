@@ -100,6 +100,8 @@ YAML POJO form is also supported — see `KintsugiConfigurationHandler` in this 
 |------------|----------|-------------|
 | `kintsugiUrl` | Yes | Kintsugi API base URL (no trailing slash), e.g. `https://api.trykintsugi.com` |
 | `hmacSecret` | Yes | Shared secret; must match the HMAC secret on your Kintsugi Kill Bill connection |
+| `killbillUrl` | No | Kill Bill base URL for optional Aviate billing-account lookup (default `http://127.0.0.1:8080`) |
+| `aviateIdToken` | No | Aviate JWT ([Aviate auth](https://docs.killbill.io/latest/aviate-authentication)). When set, the plugin reads [billing accounts](https://docs.killbill.io/latest/aviate-billing-account) before falling back to custom fields. Omit for non-Aviate deployments. |
 
 `kintsugiUrl` must be reachable from the Kill Bill JVM (network/firewall/DNS).
 
@@ -153,6 +155,7 @@ See [docker/README.md](docker/README.md) for step-by-step scripts, configuration
 
 ## Behavior notes
 
+- **Dual deployment**: Aviate tenants — the Aviate plugin will pass [plugin properties](docs/aviate-integration.md#plugin-property-contract) on invoice generation (AvaTax pattern); optional `aviateIdToken` fills gaps via billing-account HTTP. Non-Aviate tenants use custom fields only.
 - **HTTP/1.1**: outbound calls use HTTP/1.1 so request bodies match HMAC signatures reliably.
 - **External charges**: lines without a plan name use a default product category.
 - **Retries**: transient failures raise `InvoicePluginApiRetryException` (1m / 5m / 15m backoff).

@@ -47,6 +47,16 @@ public final class InvoiceRequestMapper {
             final Account account,
             final boolean dryRun,
             final String tenantId) {
+        return toEstimateRequest(invoice, account, dryRun, tenantId, AccountTaxMetadata.empty());
+    }
+
+    public static ObjectNode toEstimateRequest(
+            final Invoice invoice,
+            final Account account,
+            final boolean dryRun,
+            final String tenantId,
+            final AccountTaxMetadata taxMetadata) {
+        final AccountTaxMetadata metadata = taxMetadata != null ? taxMetadata : AccountTaxMetadata.empty();
         final ArrayNode lineItems = MAPPER.createArrayNode();
 
         for (final InvoiceItem item : invoice.getInvoiceItems()) {
@@ -81,12 +91,16 @@ public final class InvoiceRequestMapper {
                 line.put("product_category", EXTERNAL_CHARGE_CATEGORY);
                 line.put("product_subcategory", EXTERNAL_CHARGE_SUBCATEGORY);
             }
+            final String taxCode = metadata.taxCodeForItem(item.getId());
+            if (taxCode != null) {
+                line.put("tax_code", taxCode);
+            }
             lineItems.add(line);
         }
 
-        final ObjectNode shipTo = accountToAddress(account);
-        final ObjectNode billTo = accountToAddress(account);
-        final ObjectNode customer = accountToCustomer(account);
+        final ObjectNode shipTo = resolveAddress(account, metadata);
+        final ObjectNode billTo = shipTo.deepCopy();
+        final ObjectNode customer = accountToCustomer(account, metadata);
         final String transactionDate = formatInvoiceDate(invoice);
 
         final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
@@ -126,12 +140,22 @@ public final class InvoiceRequestMapper {
         return externalIds;
     }
 
-    private static boolean shouldSkipItem(final InvoiceItem item) {
-        final InvoiceItemType type = item.getInvoiceItemType();
+    public static boolean isSkippedItemType(final InvoiceItemType type) {
         return type == InvoiceItemType.TAX
                 || type == InvoiceItemType.ITEM_ADJ
                 || type == InvoiceItemType.CREDIT_ADJ
                 || type == InvoiceItemType.REPAIR_ADJ;
+    }
+
+    private static boolean shouldSkipItem(final InvoiceItem item) {
+        return isSkippedItemType(item.getInvoiceItemType());
+    }
+
+    private static ObjectNode resolveAddress(final Account account, final AccountTaxMetadata metadata) {
+        if (metadata.getShipToAddress() != null && metadata.getShipToAddress().hasData()) {
+            return metadata.getShipToAddress().toJson(MAPPER);
+        }
+        return accountToAddress(account);
     }
 
     private static ObjectNode accountToAddress(final Account account) {
@@ -157,17 +181,32 @@ public final class InvoiceRequestMapper {
         return address;
     }
 
-    private static ObjectNode accountToCustomer(final Account account) {
+    private static ObjectNode accountToCustomer(final Account account, final AccountTaxMetadata metadata) {
         final ObjectNode customer = MAPPER.createObjectNode();
         final String externalId = account.getExternalKey() != null
                 ? account.getExternalKey()
                 : account.getId().toString();
         customer.put("external_id", externalId);
-        if (account.getEmail() != null) {
-            customer.put("email", account.getEmail());
+        final String email = metadata.getContactEmail() != null
+                ? metadata.getContactEmail()
+                : account.getEmail();
+        if (email != null) {
+            customer.put("email", email);
         }
-        if (account.getName() != null) {
-            customer.put("name", account.getName());
+        final String name = metadata.getCompanyName() != null
+                ? metadata.getCompanyName()
+                : account.getName();
+        if (name != null) {
+            customer.put("name", name);
+        }
+        if (metadata.isTaxExempt()) {
+            customer.put("exempt", true);
+        }
+        if (metadata.getCustomerUsageType() != null) {
+            customer.put("entity_use_code", metadata.getCustomerUsageType());
+        }
+        if (metadata.getTaxRegistrationNumber() != null) {
+            customer.put("tax_registration_number", metadata.getTaxRegistrationNumber());
         }
         return customer;
     }

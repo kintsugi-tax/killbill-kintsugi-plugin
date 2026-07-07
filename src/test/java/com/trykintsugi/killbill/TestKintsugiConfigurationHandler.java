@@ -58,4 +58,37 @@ public class TestKintsugiConfigurationHandler {
         Assert.assertEquals(config.getKintsugiUrl(), "https://api.example.com");
         Assert.assertEquals(config.getHmacSecret(), "shared-secret");
     }
+
+    @Test(groups = "fast")
+    public void testAviateConfigIsOptional() {
+        final KintsugiConfigurationHandler handler = new KintsugiConfigurationHandler(
+                KintsugiActivator.PLUGIN_NAME, Mockito.mock(OSGIKillbillAPI.class));
+
+        final Properties properties = new Properties();
+        properties.setProperty("kintsugiUrl", "https://api.example.com");
+        properties.setProperty("hmacSecret", "shared-secret");
+        properties.setProperty("killbillUrl", "http://kb.example.com:8080");
+        properties.setProperty("aviateIdToken", "jwt-token");
+
+        final KintsugiTenantConfig config = handler.createConfigurable(properties);
+
+        Assert.assertEquals(config.getKillbillUrl(), "http://kb.example.com:8080");
+        Assert.assertEquals(config.getAviateIdToken(), "jwt-token");
+        Assert.assertTrue(config.hasAviateIntegration());
+    }
+
+    @Test(groups = "fast")
+    public void testDefaultKillbillUrlWhenBlank() {
+        final KintsugiConfigurationHandler handler = new KintsugiConfigurationHandler(
+                KintsugiActivator.PLUGIN_NAME, Mockito.mock(OSGIKillbillAPI.class));
+
+        final Properties properties = new Properties();
+        properties.setProperty("kintsugiUrl", "https://api.example.com");
+        properties.setProperty("hmacSecret", "shared-secret");
+
+        final KintsugiTenantConfig config = handler.createConfigurable(properties);
+
+        Assert.assertEquals(config.getKillbillUrl(), "http://127.0.0.1:8080");
+        Assert.assertFalse(config.hasAviateIntegration());
+    }
 }

@@ -31,7 +31,9 @@ import org.killbill.billing.plugin.TestUtils;
 import org.killbill.billing.plugin.api.PluginCallContext;
 import org.killbill.billing.tenant.api.Tenant;
 import org.killbill.billing.tenant.api.TenantUserApi;
+import org.killbill.billing.ObjectType;
 import org.killbill.billing.util.callcontext.CallContext;
+import org.killbill.billing.util.api.CustomFieldUserApi;
 import org.killbill.clock.Clock;
 import org.killbill.clock.DefaultClock;
 import org.mockito.Mockito;
@@ -84,8 +86,18 @@ public class TestKintsugiInvoicePluginApi {
         final TenantUserApi tenantUserApi = Mockito.mock(TenantUserApi.class);
         final Tenant tenant = Mockito.mock(Tenant.class);
         Mockito.when(tenant.getApiKey()).thenReturn(TENANT_API_KEY);
+        Mockito.when(tenant.getApiSecret()).thenReturn("tenant-api-secret");
         Mockito.when(tenantUserApi.getTenantById(tenantId)).thenReturn(tenant);
         Mockito.when(osgiKillbillAPI.getTenantUserApi()).thenReturn(tenantUserApi);
+
+        final CustomFieldUserApi customFieldUserApi = Mockito.mock(CustomFieldUserApi.class);
+        Mockito.when(osgiKillbillAPI.getCustomFieldUserApi()).thenReturn(customFieldUserApi);
+        Mockito.when(customFieldUserApi.getCustomFieldsForObject(
+                Mockito.any(), Mockito.eq(ObjectType.ACCOUNT), Mockito.any()))
+                .thenReturn(List.of());
+        Mockito.when(customFieldUserApi.getCustomFieldsForAccountType(
+                Mockito.any(), Mockito.eq(ObjectType.INVOICE_ITEM), Mockito.any()))
+                .thenReturn(List.of());
 
         configurationHandler = new KintsugiConfigurationHandler(
                 KintsugiActivator.PLUGIN_NAME, osgiKillbillAPI);
@@ -234,6 +246,32 @@ public class TestKintsugiInvoicePluginApi {
         Assert.assertNotNull(signature);
         Assert.assertTrue(signature.matches("[a-f0-9]{64}"));
         Assert.assertFalse(request.getBodyAsString().isEmpty());
+    }
+
+    @Test(groups = "fast")
+    public void testReInvoiceSkipsApiWhenTaxItemsAlreadyPresent() throws Exception {
+        final UUID chargeId = UUID.randomUUID();
+        final Invoice invoice = TestUtils.buildInvoice(account);
+        final List<InvoiceItem> invoiceItems = new LinkedList<>();
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(invoiceItems);
+
+        final InvoiceItem charge = TestUtils.buildInvoiceItem(
+                invoice, InvoiceItemType.EXTERNAL_CHARGE, new BigDecimal("100"), null);
+        Mockito.when(charge.getId()).thenReturn(chargeId);
+        invoiceItems.add(charge);
+
+        final InvoiceItem tax = TestUtils.buildInvoiceItem(
+                invoice, InvoiceItemType.TAX, new BigDecimal("8.25"), null);
+        Mockito.when(tax.getId()).thenReturn(UUID.randomUUID());
+        Mockito.when(tax.getLinkedItemId()).thenReturn(chargeId);
+        invoiceItems.add(tax);
+
+        final List<InvoiceItem> result = pluginApi.getAdditionalInvoiceItems(
+                invoice, true, List.of(), invoiceContext).getAdditionalItems();
+
+        Assert.assertTrue(result.isEmpty());
+        wireMockServer.verify(0, postRequestedFor(urlPathEqualTo("/killbill/tax/estimate")));
+        wireMockServer.verify(0, postRequestedFor(urlPathEqualTo("/killbill/tax/commit")));
     }
 
     private void configurePlugin(final String kintsugiUrl) {

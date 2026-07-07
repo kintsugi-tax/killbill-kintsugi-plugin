@@ -20,8 +20,13 @@ package com.trykintsugi.killbill;
 /** Per-tenant Kill Bill plugin configuration (YAML upload). */
 public final class KintsugiTenantConfig {
 
+    private static final String DEFAULT_KILLBILL_URL = "http://127.0.0.1:8080";
+
     private String kintsugiUrl;
     private String hmacSecret;
+    private String killbillUrl = DEFAULT_KILLBILL_URL;
+    /** Aviate JWT; when blank, Aviate billing-account lookup is skipped. */
+    private String aviateIdToken;
 
     public String getKintsugiUrl() {
         return kintsugiUrl;
@@ -37,5 +42,25 @@ public final class KintsugiTenantConfig {
 
     public void setHmacSecret(final String hmacSecret) {
         this.hmacSecret = hmacSecret;
+    }
+
+    public String getKillbillUrl() {
+        return killbillUrl != null && !killbillUrl.isBlank() ? killbillUrl.trim() : DEFAULT_KILLBILL_URL;
+    }
+
+    public void setKillbillUrl(final String killbillUrl) {
+        this.killbillUrl = killbillUrl;
+    }
+
+    public String getAviateIdToken() {
+        return aviateIdToken;
+    }
+
+    public void setAviateIdToken(final String aviateIdToken) {
+        this.aviateIdToken = aviateIdToken;
+    }
+
+    public boolean hasAviateIntegration() {
+        return aviateIdToken != null && !aviateIdToken.isBlank();
     }
 }

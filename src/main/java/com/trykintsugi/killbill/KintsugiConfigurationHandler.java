@@ -32,6 +32,8 @@ import java.util.Properties;
  * !!com.trykintsugi.killbill.KintsugiTenantConfig
  * kintsugiUrl: https://api.trykintsugi.com
  * hmacSecret: &lt;shared-hmac-secret&gt;
+ * killbillUrl: http://127.0.0.1:8080
+ * aviateIdToken: &lt;aviate-jwt&gt;
  * </pre>
  *
  * <p>Or key=value properties:
@@ -54,7 +56,18 @@ public final class KintsugiConfigurationHandler
         final KintsugiTenantConfig config = new KintsugiTenantConfig();
         config.setKintsugiUrl(properties.getProperty("kintsugiUrl", "").trim());
         config.setHmacSecret(properties.getProperty("hmacSecret", "").trim());
-        LOGGER.info("Loaded Kintsugi tenant config (url={})", config.getKintsugiUrl());
+        config.setKillbillUrl(properties.getProperty("killbillUrl", "").trim());
+        config.setAviateIdToken(properties.getProperty("aviateIdToken", "").trim());
+        if (config.hasAviateIntegration() && properties.getProperty("killbillUrl", "").isBlank()) {
+            LOGGER.warn(
+                    "aviateIdToken is configured but killbillUrl is not set; "
+                            + "defaulting to {} for billing-account lookup",
+                    config.getKillbillUrl());
+        }
+        LOGGER.info(
+                "Loaded Kintsugi tenant config (url={}, aviate={})",
+                config.getKintsugiUrl(),
+                config.hasAviateIntegration());
         return config;
     }
 }
