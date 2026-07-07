@@ -1,0 +1,8 @@
+killbill-kintsugi-plugin 0.1.0
+---------------------------------------
+
+* Invoice plugin delegating tax calculation to Kintsugi
+* HMAC-authenticated calls to `/killbill/tax/estimate` and `/commit`
+* Per-tenant config via `uploadPluginConfig/killbill-kintsugi`
+* Tax estimate requests include customer, billing address, transaction date, and line item details
+* Retry on transient failures (`InvoicePluginApiRetryException`)
