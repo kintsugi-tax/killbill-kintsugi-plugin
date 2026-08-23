@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class KintsugiTaxClientTest {
 
@@ -66,6 +67,24 @@ class KintsugiTaxClientTest {
         assertEquals(1, lines.size());
         assertEquals("line-1", lines.get(0).lineExternalId());
         assertEquals(new BigDecimal("8.25"), lines.get(0).taxAmount());
+    }
+
+    @Test
+    void parseTaxLinesRejectsDocumentErrors() {
+        final String json = "{\"documents\":[{\"document_id\":\"inv-1\","
+                + "\"error\":{\"code\":\"PRODUCTS_NOT_FOUND\","
+                + "\"message\":\"Product p2-monthly not found\","
+                + "\"details\":\"ProductNotFound\"}}]}";
+
+        final KintsugiTaxClient.TaxEstimationException exception =
+                assertThrows(
+                        KintsugiTaxClient.TaxEstimationException.class,
+                        () -> KintsugiTaxClient.parseTaxLines(json));
+
+        assertEquals("PRODUCTS_NOT_FOUND", exception.code());
+        assertEquals("inv-1", exception.documentId());
+        assertEquals("Product p2-monthly not found", exception.getMessage());
+        assertEquals("ProductNotFound", exception.details());
     }
 
     @Test

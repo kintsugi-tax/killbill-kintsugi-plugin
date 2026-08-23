@@ -104,6 +104,16 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             return new KintsugiAdditionalItemsResult(taxItems);
         } catch (InvoicePluginApiRetryException e) {
             throw e;
+        } catch (KintsugiTaxClient.TaxEstimationException e) {
+            LOGGER.warn(
+                    "Kintsugi tax estimate returned a document error for tenant {}: "
+                            + "code={}, document={}, details={}, message={}",
+                    invoiceContext.getTenantId(),
+                    e.code(),
+                    e.documentId(),
+                    e.details(),
+                    e.getMessage());
+            throw new InvoicePluginApiRetryException(e, RETRY_SCHEDULE);
         } catch (Exception e) {
             LOGGER.warn("Kintsugi tax estimate failed for tenant {}: {}", invoiceContext.getTenantId(), e.getMessage());
             throw new InvoicePluginApiRetryException(e, RETRY_SCHEDULE);
