@@ -96,6 +96,11 @@ public final class KintsugiTaxClient {
             return results;
         }
         for (final JsonNode doc : documents) {
+            final JsonNode error = doc.path("error");
+            if (!error.isMissingNode() && !error.isNull()) {
+                throw documentError(doc, error);
+            }
+
             final JsonNode lineItems = doc.path("line_items");
             if (!lineItems.isArray()) {
                 continue;
@@ -110,6 +115,17 @@ public final class KintsugiTaxClient {
             }
         }
         return results;
+    }
+
+    private static TaxEstimationException documentError(
+            final JsonNode document,
+            final JsonNode error) {
+        final String code = error.path("code").asText("UNKNOWN");
+        final String message = error.path("message").asText("Kintsugi tax estimation failed");
+        final String details = error.path("details").asText(null);
+        final String documentId = document.path("document_id").asText(
+                document.path("id").asText(null));
+        return new TaxEstimationException(code, message, details, documentId);
     }
 
     static String hmacSha256Hex(final String secret, final byte[] payload) throws Exception {
@@ -174,6 +190,35 @@ public final class KintsugiTaxClient {
 
         public BigDecimal ratePercent() {
             return ratePercent;
+        }
+    }
+
+    public static final class TaxEstimationException extends IllegalStateException {
+        private final String code;
+        private final String details;
+        private final String documentId;
+
+        private TaxEstimationException(
+                final String code,
+                final String message,
+                final String details,
+                final String documentId) {
+            super(message);
+            this.code = code;
+            this.details = details;
+            this.documentId = documentId;
+        }
+
+        public String code() {
+            return code;
+        }
+
+        public String details() {
+            return details;
+        }
+
+        public String documentId() {
+            return documentId;
         }
     }
 }

@@ -91,6 +91,24 @@ public class TestKintsugiTaxClient {
     }
 
     @Test(groups = "fast")
+    public void testParseTaxLinesRejectsDocumentError() throws Exception {
+        final String json = "{\"documents\":[{\"document_id\":\"inv-1\","
+                + "\"error\":{\"code\":\"PRODUCTS_NOT_FOUND\","
+                + "\"message\":\"Product p2-monthly not found\","
+                + "\"details\":\"ProductNotFound\"}}]}";
+
+        try {
+            KintsugiTaxClient.parseTaxLines(json);
+            Assert.fail("Expected a document-level tax estimation error");
+        } catch (KintsugiTaxClient.TaxEstimationException e) {
+            Assert.assertEquals(e.code(), "PRODUCTS_NOT_FOUND");
+            Assert.assertEquals(e.documentId(), "inv-1");
+            Assert.assertEquals(e.getMessage(), "Product p2-monthly not found");
+            Assert.assertEquals(e.details(), "ProductNotFound");
+        }
+    }
+
+    @Test(groups = "fast")
     public void testParseTaxLinesReturnsEmptyForMissingDocuments() throws Exception {
         Assert.assertTrue(KintsugiTaxClient.parseTaxLines("{}").isEmpty());
         Assert.assertTrue(KintsugiTaxClient.parseTaxLines("{\"documents\":null}").isEmpty());

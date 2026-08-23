@@ -18,6 +18,8 @@ package com.trykintsugi.killbill;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
+import com.trykintsugi.killbill.internal.KintsugiTaxClient;
+import org.joda.time.Period;
 import org.killbill.billing.account.api.Account;
 import org.killbill.billing.catalog.api.Currency;
 import org.killbill.billing.invoice.api.Invoice;
@@ -229,6 +231,29 @@ public class TestKintsugiInvoicePluginApi {
         final Invoice invoice = buildInvoiceWithExternalCharge(itemId, new BigDecimal("100"));
 
         pluginApi.getAdditionalInvoiceItems(invoice, true, List.of(), invoiceContext);
+    }
+
+    @Test(groups = "fast")
+    public void testDocumentErrorTriggersRetryWithExistingSchedule() throws Exception {
+        final String body = "{\"documents\":[{\"document_id\":\"invoice-1\","
+                + "\"error\":{\"code\":\"PRODUCTS_NOT_FOUND\","
+                + "\"message\":\"Product p2-monthly not found\","
+                + "\"details\":\"ProductNotFound\"}}]}";
+        wireMockServer.stubFor(post(urlPathEqualTo("/killbill/tax/estimate"))
+                .willReturn(aResponse().withStatus(200).withBody(body)));
+
+        final UUID itemId = UUID.randomUUID();
+        final Invoice invoice = buildInvoiceWithExternalCharge(itemId, new BigDecimal("100"));
+
+        try {
+            pluginApi.getAdditionalInvoiceItems(invoice, true, List.of(), invoiceContext);
+            Assert.fail("Expected document-level tax estimation error to trigger retry");
+        } catch (InvoicePluginApiRetryException e) {
+            Assert.assertTrue(e.getCause() instanceof KintsugiTaxClient.TaxEstimationException);
+            Assert.assertEquals(
+                    e.getRetrySchedule(),
+                    List.of(Period.minutes(1), Period.minutes(5), Period.minutes(15)));
+        }
     }
 
     @Test(groups = "fast")
