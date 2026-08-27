@@ -91,6 +91,19 @@ public class TestKintsugiTaxClient {
     }
 
     @Test(groups = "fast")
+    public void testParseTaxLinesMapsMosaicResponseFields() throws Exception {
+        final String json = "{\"documents\":[{\"line_items\":["
+                + "{\"line_external_id\":\"line-1\",\"tax_amount\":\"8.25\","
+                + "\"rate_percentage\":\"8.250000000\",\"taxable_amount\":\"100.00\"}"
+                + "]}]}";
+        final List<KintsugiTaxClient.TaxLineResult> lines = KintsugiTaxClient.parseTaxLines(json);
+        Assert.assertEquals(lines.size(), 1);
+        Assert.assertEquals(lines.get(0).lineExternalId(), "line-1");
+        Assert.assertEquals(lines.get(0).taxAmount(), new BigDecimal("8.25"));
+        Assert.assertEquals(lines.get(0).ratePercent(), new BigDecimal("8.250000000"));
+    }
+
+    @Test(groups = "fast")
     public void testParseTaxLinesRejectsDocumentError() throws Exception {
         final String json = "{\"documents\":[{\"document_id\":\"inv-1\","
                 + "\"error\":{\"code\":\"PRODUCTS_NOT_FOUND\","

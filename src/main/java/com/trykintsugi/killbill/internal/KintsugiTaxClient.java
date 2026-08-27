@@ -106,9 +106,12 @@ public final class KintsugiTaxClient {
                 continue;
             }
             for (final JsonNode line : lineItems) {
-                final String externalId = line.path("external_id").asText(null);
+                // Mosaic response uses line_external_id / rate_percentage; accept
+                // legacy external_id / rate for older fixtures and wiremocks.
+                final String externalId = firstText(line, "line_external_id", "external_id");
                 final BigDecimal taxAmount = new BigDecimal(line.path("tax_amount").asText("0"));
-                final BigDecimal rate = new BigDecimal(line.path("rate").asText("0"));
+                final String rateText = firstText(line, "rate_percentage", "rate");
+                final BigDecimal rate = new BigDecimal(rateText != null ? rateText : "0");
                 if (externalId != null) {
                     results.add(new TaxLineResult(externalId, taxAmount, rate));
                 }
@@ -126,6 +129,21 @@ public final class KintsugiTaxClient {
         final String documentId = document.path("document_id").asText(
                 document.path("id").asText(null));
         return new TaxEstimationException(code, message, details, documentId);
+    }
+
+    /** First present non-blank text among ``fields``, or ``null`` if none. */
+    private static String firstText(final JsonNode node, final String... fields) {
+        for (final String field : fields) {
+            final JsonNode value = node.get(field);
+            if (value == null || value.isNull() || !value.isValueNode()) {
+                continue;
+            }
+            final String text = value.asText(null);
+            if (text != null && !text.isBlank()) {
+                return text;
+            }
+        }
+        return null;
     }
 
     static String hmacSha256Hex(final String secret, final byte[] payload) throws Exception {
