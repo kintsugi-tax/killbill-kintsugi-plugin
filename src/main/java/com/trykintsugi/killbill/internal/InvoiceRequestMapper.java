@@ -28,6 +28,7 @@ import org.killbill.billing.invoice.api.InvoiceItemType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -122,7 +123,8 @@ public final class InvoiceRequestMapper {
 
         if (invoice.getInvoiceNumber() != null) {
             final ObjectNode document = (ObjectNode) root.path("documents").get(0);
-            document.put("invoice_number", invoice.getInvoiceNumber());
+            // Stringify — platform invoice_number is str; Jackson ints fail validation.
+            document.put("invoice_number", String.valueOf(invoice.getInvoiceNumber()));
         }
 
         return root;
@@ -140,11 +142,136 @@ public final class InvoiceRequestMapper {
         return externalIds;
     }
 
+    /**
+     * Item types omitted from the <em>sales</em> estimate payload (TAX + adjustments).
+     * Return adjustments are mapped separately via {@link #toReturnEstimateRequest}.
+     */
     public static boolean isSkippedItemType(final InvoiceItemType type) {
         return type == InvoiceItemType.TAX
                 || type == InvoiceItemType.ITEM_ADJ
                 || type == InvoiceItemType.CREDIT_ADJ
                 || type == InvoiceItemType.REPAIR_ADJ;
+    }
+
+    /**
+     * AvaTax-parity return adjustment types. {@code CREDIT_ADJ} is excluded (same as AvaTax
+     * {@code PluginTaxCalculator}).
+     */
+    public static boolean isReturnAdjustmentItemType(final InvoiceItemType type) {
+        return type == InvoiceItemType.ITEM_ADJ || type == InvoiceItemType.REPAIR_ADJ;
+    }
+
+    /**
+     * Builds a return-tax estimate for untaxed {@code ITEM_ADJ}/{@code REPAIR_ADJ} lines.
+     * Document id is {@code {invoiceId}:adj-return} so platform commit can skip SALE persist.
+     *
+     * <p>Lenient mode (MVP): adjustments without a resolvable linked taxable item are skipped.
+     */
+    public static ObjectNode toReturnEstimateRequest(
+            final Invoice invoice,
+            final Account account,
+            final boolean dryRun,
+            final String tenantId,
+            final AccountTaxMetadata taxMetadata,
+            final List<InvoiceItem> untaxedAdjustments) {
+        final AccountTaxMetadata metadata = taxMetadata != null ? taxMetadata : AccountTaxMetadata.empty();
+        final Map<UUID, InvoiceItem> itemsById = indexItemsById(invoice);
+        final ArrayNode lineItems = MAPPER.createArrayNode();
+
+        for (final InvoiceItem adj : untaxedAdjustments) {
+            if (adj.getId() == null) {
+                continue;
+            }
+            // Lenient: missing linked original → skip (AvaTax adjustments.lenientMode=true).
+            if (adj.getLinkedItemId() == null || !itemsById.containsKey(adj.getLinkedItemId())) {
+                continue;
+            }
+            final InvoiceItem linked = itemsById.get(adj.getLinkedItemId());
+            BigDecimal amount = adj.getAmount() != null ? adj.getAmount() : BigDecimal.ZERO;
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                amount = amount.negate();
+            }
+            if (amount.compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
+
+            final ObjectNode line = MAPPER.createObjectNode();
+            line.put("external_id", adj.getId().toString());
+            line.put("amount", formatAmount(amount));
+            line.put("quantity", "1");
+            line.put("kind", "item");
+            line.put("invoice_item_id", adj.getId().toString());
+            if (adj.getInvoiceItemType() != null) {
+                line.put("item_type", adj.getInvoiceItemType().name());
+            }
+            if (adj.getDescription() != null) {
+                line.put("description", adj.getDescription());
+            } else {
+                line.put("description", "Invoice item adjustment");
+            }
+            // Inherit product identity from the linked taxable line for rate classification.
+            if (linked.getPlanName() != null) {
+                line.put("plan_name", linked.getPlanName());
+                line.put("external_product_id", linked.getPlanName());
+            }
+            if (linked.getPrettyProductName() != null) {
+                line.put("product_name", linked.getPrettyProductName());
+            }
+            final String taxCode = metadata.taxCodeForItem(linked.getId());
+            if (taxCode != null) {
+                line.put("tax_code", taxCode);
+            }
+            line.put("linked_invoice_item_id", adj.getLinkedItemId().toString());
+            lineItems.add(line);
+        }
+
+        if (lineItems.isEmpty()) {
+            return null;
+        }
+
+        final String documentId = (invoice.getId() != null ? invoice.getId().toString() : UUID.randomUUID().toString())
+                + ":adj-return";
+        final ObjectNode shipTo = resolveAddress(account, metadata);
+        final ObjectNode billTo = accountToAddress(account);
+        final ObjectNode customer = accountToCustomer(account, metadata);
+        final String transactionDate = formatInvoiceDate(invoice);
+
+        final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
+                UUID.randomUUID().toString(),
+                invoice.getCurrency().toString(),
+                documentId,
+                invoice.getAccountId().toString(),
+                dryRun,
+                lineItems,
+                shipTo,
+                billTo,
+                customer,
+                transactionDate);
+
+        if (tenantId != null && !tenantId.isBlank()) {
+            root.put("tenant_id", tenantId);
+        }
+        root.put("plugin_name", "killbill-kintsugi");
+
+        // Always attach document_kind; stringify invoice_number (Jackson would
+        // otherwise emit a JSON number that Pydantic str fields reject).
+        final ObjectNode document = (ObjectNode) root.path("documents").get(0);
+        document.put("document_kind", "return");
+        if (invoice.getInvoiceNumber() != null) {
+            document.put("invoice_number", String.valueOf(invoice.getInvoiceNumber()));
+        }
+
+        return root;
+    }
+
+    private static Map<UUID, InvoiceItem> indexItemsById(final Invoice invoice) {
+        final Map<UUID, InvoiceItem> byId = new HashMap<>();
+        for (final InvoiceItem item : invoice.getInvoiceItems()) {
+            if (item.getId() != null) {
+                byId.put(item.getId(), item);
+            }
+        }
+        return byId;
     }
 
     private static boolean shouldSkipItem(final InvoiceItem item) {

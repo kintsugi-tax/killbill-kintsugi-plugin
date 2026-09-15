@@ -97,7 +97,7 @@ public class TestInvoiceRequestMapper {
         final ObjectNode document = (ObjectNode) request.path("documents").get(0);
         Assert.assertTrue(document.path("dry_run").asBoolean());
         Assert.assertEquals(document.path("transaction_date").asText(), "2026-01-15");
-        Assert.assertEquals(document.path("invoice_number").asInt(), 42);
+        Assert.assertEquals(document.path("invoice_number").asText(), "42");
 
         final ObjectNode line = (ObjectNode) document.path("line_items").get(0);
         Assert.assertEquals(line.path("external_id").asText(), itemId.toString());

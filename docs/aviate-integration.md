@@ -40,7 +40,7 @@ Documented in `InvoicePluginPropertyNames` for coordination with the Aviate plug
 ## Planned follow-ups
 
 * **Aviate Catalog tax codes** — resolve plan → product → Aviate tax code from tenant config or API.
-* **Repairs and return documents** — `ITEM_ADJ` / `REPAIR_ADJ` as return lines; stable document IDs.
+* ~~**Repairs and return documents** — `ITEM_ADJ` / `REPAIR_ADJ` as return lines; stable document IDs.~~ Shipped MVP (EI-2564): return estimate with `{invoiceId}:adj-return`, negative TAX linked to adj item; lenient skip when linked item missing. Follow-ups: TaxDate from original invoice, strict mode, CREDIT_ADJ policy.
 
 ## References
 

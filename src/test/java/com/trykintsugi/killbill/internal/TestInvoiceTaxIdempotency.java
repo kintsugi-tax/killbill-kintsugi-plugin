@@ -61,7 +61,7 @@ public class TestInvoiceTaxIdempotency {
     }
 
     @Test(groups = "fast")
-    public void testIgnoresAdjustmentItemsWhenCheckingCoverage() {
+    public void testIgnoresAdjustmentItemsWhenCheckingSalesCoverage() {
         final UUID chargeId = UUID.randomUUID();
         final InvoiceItem charge = chargeItem(chargeId, new BigDecimal("100"));
         final InvoiceItem tax = taxItem(chargeId, new BigDecimal("8.25"));
@@ -74,6 +74,26 @@ public class TestInvoiceTaxIdempotency {
         final Invoice invoice = invoiceWithItems(charge, tax, adjustment);
 
         Assert.assertTrue(InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice));
+        Assert.assertEquals(InvoiceTaxIdempotency.untaxedAdjustmentItems(invoice).size(), 1);
+        Assert.assertFalse(InvoiceTaxIdempotency.nothingLeftToTax(invoice));
+    }
+
+    @Test(groups = "fast")
+    public void testUntaxedAdjustmentsEmptyWhenReturnTaxLinkedToAdj() {
+        final UUID chargeId = UUID.randomUUID();
+        final UUID adjId = UUID.randomUUID();
+        final InvoiceItem charge = chargeItem(chargeId, new BigDecimal("100"));
+        final InvoiceItem salesTax = taxItem(chargeId, new BigDecimal("8.25"));
+        final InvoiceItem adjustment = Mockito.mock(InvoiceItem.class);
+        Mockito.when(adjustment.getId()).thenReturn(adjId);
+        Mockito.when(adjustment.getAmount()).thenReturn(new BigDecimal("-10"));
+        Mockito.when(adjustment.getInvoiceItemType()).thenReturn(InvoiceItemType.ITEM_ADJ);
+        final InvoiceItem returnTax = taxItem(adjId, new BigDecimal("-0.83"));
+        final Invoice invoice = invoiceWithItems(charge, salesTax, adjustment, returnTax);
+
+        Assert.assertTrue(InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice));
+        Assert.assertTrue(InvoiceTaxIdempotency.untaxedAdjustmentItems(invoice).isEmpty());
+        Assert.assertTrue(InvoiceTaxIdempotency.nothingLeftToTax(invoice));
     }
 
     @Test(groups = "fast")
