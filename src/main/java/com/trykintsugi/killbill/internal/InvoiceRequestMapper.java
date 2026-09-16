@@ -37,9 +37,12 @@ public final class InvoiceRequestMapper {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** Default product labels for external charges without a plan name. */
-    static final String EXTERNAL_CHARGE_CATEGORY = "Physical";
-    static final String EXTERNAL_CHARGE_SUBCATEGORY = "General Physical";
+    /**
+     * Shared product external id for plan-less {@code EXTERNAL_CHARGE} lines.
+     * Matches platform {@code EXTERNAL_CHARGE}; classification stays UNKNOWN/PENDING
+     * until the merchant sets it (Chargebee {@code adhoc_charge} pattern).
+     */
+    static final String EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID = "EXTERNAL_CHARGE";
 
     private InvoiceRequestMapper() {}
 
@@ -82,16 +85,7 @@ public final class InvoiceRequestMapper {
             if (item.getInvoiceItemType() != null) {
                 line.put("item_type", item.getInvoiceItemType().name());
             }
-            if (item.getPlanName() != null) {
-                line.put("plan_name", item.getPlanName());
-                line.put("external_product_id", item.getPlanName());
-            }
-            if (item.getPrettyProductName() != null) {
-                line.put("product_name", item.getPrettyProductName());
-            } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
-                line.put("product_category", EXTERNAL_CHARGE_CATEGORY);
-                line.put("product_subcategory", EXTERNAL_CHARGE_SUBCATEGORY);
-            }
+            putProductIdentity(line, item);
             final String taxCode = metadata.taxCodeForItem(item.getId());
             if (taxCode != null) {
                 line.put("tax_code", taxCode);
@@ -209,14 +203,8 @@ public final class InvoiceRequestMapper {
             } else {
                 line.put("description", "Invoice item adjustment");
             }
-            // Inherit product identity from the linked taxable line for rate classification.
-            if (linked.getPlanName() != null) {
-                line.put("plan_name", linked.getPlanName());
-                line.put("external_product_id", linked.getPlanName());
-            }
-            if (linked.getPrettyProductName() != null) {
-                line.put("product_name", linked.getPrettyProductName());
-            }
+            // Same product identity rules as sales, from the linked taxable line.
+            putProductIdentity(line, linked);
             final String taxCode = metadata.taxCodeForItem(linked.getId());
             if (taxCode != null) {
                 line.put("tax_code", taxCode);
@@ -262,6 +250,24 @@ public final class InvoiceRequestMapper {
         }
 
         return root;
+    }
+
+
+    /**
+     * Map plan/product fields the same way for sales and return lines.
+     * Plan-less {@code EXTERNAL_CHARGE} points at the shared sentinel product id
+     * with no inline category — merchant classifies that SKU in Kintsugi.
+     */
+    private static void putProductIdentity(final ObjectNode line, final InvoiceItem item) {
+        if (item.getPlanName() != null) {
+            line.put("plan_name", item.getPlanName());
+            line.put("external_product_id", item.getPlanName());
+        }
+        if (item.getPrettyProductName() != null) {
+            line.put("product_name", item.getPrettyProductName());
+        } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
+            line.put("external_product_id", EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID);
+        }
     }
 
     private static Map<UUID, InvoiceItem> indexItemsById(final Invoice invoice) {
