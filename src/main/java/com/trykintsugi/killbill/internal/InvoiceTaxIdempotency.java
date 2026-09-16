@@ -64,8 +64,11 @@ public final class InvoiceTaxIdempotency {
             }
         }
 
+        // No sales lines (adj/credit/tax-only invoice) → sales path is done; return path
+        // decides separately. Returning false here would POST an empty sales estimate
+        // and block return tax for ITEM_ADJ/REPAIR_ADJ-only invoices.
         if (taxableItemIds.isEmpty()) {
-            return false;
+            return true;
         }
         return taxedItemIds.containsAll(taxableItemIds);
     }

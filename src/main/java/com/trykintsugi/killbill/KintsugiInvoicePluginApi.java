@@ -123,9 +123,12 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             if (salesNeeded) {
                 final ObjectNode salesBody = InvoiceRequestMapper.toEstimateRequest(
                         invoice, account, dryRun, tenantIdStr, taxMetadata);
-                final List<KintsugiTaxClient.TaxLineResult> salesTaxLines =
-                        client.estimate(salesBody, !dryRun);
-                taxItems.addAll(TaxItemMapper.toTaxItems(invoice, salesTaxLines, itemsById));
+                // Defense: never POST an empty sales document (adj/credit-only invoices).
+                if (salesBody.path("documents").path(0).path("line_items").size() > 0) {
+                    final List<KintsugiTaxClient.TaxLineResult> salesTaxLines =
+                            client.estimate(salesBody, !dryRun);
+                    taxItems.addAll(TaxItemMapper.toTaxItems(invoice, salesTaxLines, itemsById));
+                }
             }
 
             if (!untaxedAdjustments.isEmpty()) {

@@ -122,6 +122,34 @@ public class TestInvoiceTaxIdempotency {
         return item;
     }
 
+
+    @Test(groups = "fast")
+    public void testAdjOnlyInvoiceHasNoSalesWorkRemaining() {
+        final UUID adjId = UUID.randomUUID();
+        final InvoiceItem adjustment = Mockito.mock(InvoiceItem.class);
+        Mockito.when(adjustment.getId()).thenReturn(adjId);
+        Mockito.when(adjustment.getAmount()).thenReturn(new BigDecimal("-10"));
+        Mockito.when(adjustment.getInvoiceItemType()).thenReturn(InvoiceItemType.ITEM_ADJ);
+        final Invoice invoice = invoiceWithItems(adjustment);
+
+        Assert.assertTrue(InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice));
+        Assert.assertEquals(InvoiceTaxIdempotency.untaxedAdjustmentItems(invoice).size(), 1);
+        Assert.assertFalse(InvoiceTaxIdempotency.nothingLeftToTax(invoice));
+    }
+
+    @Test(groups = "fast")
+    public void testCreditOnlyInvoiceHasNoSalesOrReturnWork() {
+        final InvoiceItem credit = Mockito.mock(InvoiceItem.class);
+        Mockito.when(credit.getId()).thenReturn(UUID.randomUUID());
+        Mockito.when(credit.getAmount()).thenReturn(new BigDecimal("-5"));
+        Mockito.when(credit.getInvoiceItemType()).thenReturn(InvoiceItemType.CREDIT_ADJ);
+        final Invoice invoice = invoiceWithItems(credit);
+
+        Assert.assertTrue(InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice));
+        Assert.assertTrue(InvoiceTaxIdempotency.untaxedAdjustmentItems(invoice).isEmpty());
+        Assert.assertTrue(InvoiceTaxIdempotency.nothingLeftToTax(invoice));
+    }
+
     private static InvoiceItem taxItem(final UUID linkedId, final BigDecimal amount) {
         final InvoiceItem item = Mockito.mock(InvoiceItem.class);
         Mockito.when(item.getId()).thenReturn(UUID.randomUUID());

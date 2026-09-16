@@ -259,14 +259,18 @@ public final class InvoiceRequestMapper {
      * with no inline category — merchant classifies that SKU in Kintsugi.
      */
     private static void putProductIdentity(final ObjectNode line, final InvoiceItem item) {
-        if (item.getPlanName() != null) {
-            line.put("plan_name", item.getPlanName());
-            line.put("external_product_id", item.getPlanName());
-        }
-        if (item.getPrettyProductName() != null) {
-            line.put("product_name", item.getPrettyProductName());
+        // Product key from plan when present; else shared EXTERNAL_CHARGE sentinel.
+        // prettyProductName is display-only and must not gate the sentinel.
+        final String planName = item.getPlanName();
+        if (planName != null && !planName.isBlank()) {
+            line.put("plan_name", planName);
+            line.put("external_product_id", planName);
         } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
             line.put("external_product_id", EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID);
+        }
+        final String prettyName = item.getPrettyProductName();
+        if (prettyName != null && !prettyName.isBlank()) {
+            line.put("product_name", prettyName);
         }
     }
 
