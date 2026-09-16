@@ -49,8 +49,8 @@ public class TestInvoiceRequestMapper {
 
     @Test(groups = "fast")
     public void testExternalChargeUsesDefaultProductLabels() {
-        Assert.assertEquals(InvoiceRequestMapper.EXTERNAL_CHARGE_CATEGORY, "Physical");
-        Assert.assertEquals(InvoiceRequestMapper.EXTERNAL_CHARGE_SUBCATEGORY, "General Physical");
+        Assert.assertEquals(
+                InvoiceRequestMapper.EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID, "EXTERNAL_CHARGE");
     }
 
     @Test(groups = "fast")
@@ -97,12 +97,13 @@ public class TestInvoiceRequestMapper {
         final ObjectNode document = (ObjectNode) request.path("documents").get(0);
         Assert.assertTrue(document.path("dry_run").asBoolean());
         Assert.assertEquals(document.path("transaction_date").asText(), "2026-01-15");
-        Assert.assertEquals(document.path("invoice_number").asInt(), 42);
+        Assert.assertEquals(document.path("invoice_number").asText(), "42");
 
         final ObjectNode line = (ObjectNode) document.path("line_items").get(0);
         Assert.assertEquals(line.path("external_id").asText(), itemId.toString());
-        Assert.assertEquals(line.path("product_category").asText(), "Physical");
-        Assert.assertEquals(line.path("product_subcategory").asText(), "General Physical");
+        Assert.assertEquals(line.path("external_product_id").asText(), "EXTERNAL_CHARGE");
+        Assert.assertFalse(line.has("product_category"));
+        Assert.assertFalse(line.has("product_subcategory"));
     }
 
     @Test(groups = "fast")
@@ -271,4 +272,205 @@ public class TestInvoiceRequestMapper {
                 document.path("customer").path("tax_registration_number").asText(),
                 "12-3456789");
     }
+
+    @Test(groups = "fast")
+    public void testReturnEstimateUsesExternalChargeProductId() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID chargeId = UUID.randomUUID();
+        final UUID adjId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem charge = Mockito.mock(InvoiceItem.class);
+        Mockito.when(charge.getId()).thenReturn(chargeId);
+        Mockito.when(charge.getAmount()).thenReturn(new BigDecimal("100.00"));
+        Mockito.when(charge.getQuantity()).thenReturn(BigDecimal.ONE);
+        Mockito.when(charge.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+        Mockito.when(charge.getPlanName()).thenReturn(null);
+        Mockito.when(charge.getPrettyProductName()).thenReturn(null);
+
+        final InvoiceItem adj = Mockito.mock(InvoiceItem.class);
+        Mockito.when(adj.getId()).thenReturn(adjId);
+        Mockito.when(adj.getAmount()).thenReturn(new BigDecimal("-25.00"));
+        Mockito.when(adj.getInvoiceItemType()).thenReturn(InvoiceItemType.ITEM_ADJ);
+        Mockito.when(adj.getLinkedItemId()).thenReturn(chargeId);
+        Mockito.when(adj.getDescription()).thenReturn(null);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(charge, adj));
+
+        final ObjectNode request = InvoiceRequestMapper.toReturnEstimateRequest(
+                invoice, account, true, null, AccountTaxMetadata.empty(), List.of(adj));
+
+        Assert.assertNotNull(request);
+        final ObjectNode document = (ObjectNode) request.path("documents").get(0);
+        Assert.assertEquals(document.path("document_kind").asText(), "return");
+        Assert.assertEquals(document.path("id").asText(), invoiceId + ":adj-return");
+
+        final ObjectNode line = (ObjectNode) document.path("line_items").get(0);
+        Assert.assertEquals(line.path("external_id").asText(), adjId.toString());
+        Assert.assertEquals(line.path("item_type").asText(), "ITEM_ADJ");
+        Assert.assertEquals(line.path("external_product_id").asText(), "EXTERNAL_CHARGE");
+        Assert.assertFalse(line.has("product_category"));
+        Assert.assertFalse(line.has("product_subcategory"));
+        Assert.assertFalse(line.has("plan_name"));
+        Assert.assertFalse(line.has("product_name"));
+    }
+
+    @Test(groups = "fast")
+    public void testReturnEstimateInheritsPlanFromLinkedItem() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID chargeId = UUID.randomUUID();
+        final UUID adjId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem charge = Mockito.mock(InvoiceItem.class);
+        Mockito.when(charge.getId()).thenReturn(chargeId);
+        Mockito.when(charge.getAmount()).thenReturn(new BigDecimal("100.00"));
+        Mockito.when(charge.getInvoiceItemType()).thenReturn(InvoiceItemType.RECURRING);
+        Mockito.when(charge.getPlanName()).thenReturn("basic-monthly");
+        Mockito.when(charge.getPrettyProductName()).thenReturn("Basic");
+
+        final InvoiceItem adj = Mockito.mock(InvoiceItem.class);
+        Mockito.when(adj.getId()).thenReturn(adjId);
+        Mockito.when(adj.getAmount()).thenReturn(new BigDecimal("-10.00"));
+        Mockito.when(adj.getInvoiceItemType()).thenReturn(InvoiceItemType.ITEM_ADJ);
+        Mockito.when(adj.getLinkedItemId()).thenReturn(chargeId);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(charge, adj));
+
+        final ObjectNode request = InvoiceRequestMapper.toReturnEstimateRequest(
+                invoice, account, true, null, AccountTaxMetadata.empty(), List.of(adj));
+
+        final ObjectNode line = (ObjectNode) request.path("documents").get(0).path("line_items").get(0);
+        Assert.assertEquals(line.path("plan_name").asText(), "basic-monthly");
+        Assert.assertEquals(line.path("external_product_id").asText(), "basic-monthly");
+        Assert.assertEquals(line.path("product_name").asText(), "Basic");
+        Assert.assertFalse(line.has("product_category"));
+    }
+
+
+    @Test(groups = "fast")
+    public void testExternalChargeWithDisplayNameStillUsesSentinelProductId() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID itemId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem item = Mockito.mock(InvoiceItem.class);
+        Mockito.when(item.getId()).thenReturn(itemId);
+        Mockito.when(item.getAmount()).thenReturn(new BigDecimal("50.00"));
+        Mockito.when(item.getQuantity()).thenReturn(BigDecimal.ONE);
+        Mockito.when(item.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+        Mockito.when(item.getPlanName()).thenReturn(null);
+        Mockito.when(item.getPrettyProductName()).thenReturn("One-time setup fee");
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(item));
+
+        final ObjectNode line = (ObjectNode) InvoiceRequestMapper.toEstimateRequest(
+                invoice, account, true, null).path("documents").get(0).path("line_items").get(0);
+
+        Assert.assertEquals(line.path("external_product_id").asText(), "EXTERNAL_CHARGE");
+        Assert.assertEquals(line.path("product_name").asText(), "One-time setup fee");
+        Assert.assertFalse(line.has("plan_name"));
+        Assert.assertFalse(line.has("product_category"));
+    }
+
+    @Test(groups = "fast")
+    public void testReturnExternalChargeWithDisplayNameStillUsesSentinelProductId() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID chargeId = UUID.randomUUID();
+        final UUID adjId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem charge = Mockito.mock(InvoiceItem.class);
+        Mockito.when(charge.getId()).thenReturn(chargeId);
+        Mockito.when(charge.getAmount()).thenReturn(new BigDecimal("100.00"));
+        Mockito.when(charge.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+        Mockito.when(charge.getPlanName()).thenReturn(null);
+        Mockito.when(charge.getPrettyProductName()).thenReturn("Hardware add-on");
+
+        final InvoiceItem adj = Mockito.mock(InvoiceItem.class);
+        Mockito.when(adj.getId()).thenReturn(adjId);
+        Mockito.when(adj.getAmount()).thenReturn(new BigDecimal("-25.00"));
+        Mockito.when(adj.getInvoiceItemType()).thenReturn(InvoiceItemType.ITEM_ADJ);
+        Mockito.when(adj.getLinkedItemId()).thenReturn(chargeId);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(charge, adj));
+
+        final ObjectNode line = (ObjectNode) InvoiceRequestMapper.toReturnEstimateRequest(
+                invoice, account, true, null, AccountTaxMetadata.empty(), List.of(adj)
+        ).path("documents").get(0).path("line_items").get(0);
+
+        Assert.assertEquals(line.path("external_product_id").asText(), "EXTERNAL_CHARGE");
+        Assert.assertEquals(line.path("product_name").asText(), "Hardware add-on");
+        Assert.assertFalse(line.has("product_category"));
+    }
+
+
+    @Test(groups = "fast")
+    public void testBlankPlanNameFallsBackToExternalChargeSentinel() {
+        final UUID accountId = UUID.randomUUID();
+        final UUID invoiceId = UUID.randomUUID();
+        final UUID itemId = UUID.randomUUID();
+
+        final Account account = Mockito.mock(Account.class);
+        Mockito.when(account.getId()).thenReturn(accountId);
+        Mockito.when(account.getExternalKey()).thenReturn("acct-ext");
+
+        final InvoiceItem item = Mockito.mock(InvoiceItem.class);
+        Mockito.when(item.getId()).thenReturn(itemId);
+        Mockito.when(item.getAmount()).thenReturn(new BigDecimal("10.00"));
+        Mockito.when(item.getQuantity()).thenReturn(BigDecimal.ONE);
+        Mockito.when(item.getInvoiceItemType()).thenReturn(InvoiceItemType.EXTERNAL_CHARGE);
+        Mockito.when(item.getPlanName()).thenReturn("  ");
+        Mockito.when(item.getPrettyProductName()).thenReturn(null);
+
+        final Invoice invoice = Mockito.mock(Invoice.class);
+        Mockito.when(invoice.getId()).thenReturn(invoiceId);
+        Mockito.when(invoice.getAccountId()).thenReturn(accountId);
+        Mockito.when(invoice.getCurrency()).thenReturn(Currency.USD);
+        Mockito.when(invoice.getInvoiceDate()).thenReturn(new LocalDate(2026, 1, 15));
+        Mockito.when(invoice.getInvoiceItems()).thenReturn(List.of(item));
+
+        final ObjectNode line = (ObjectNode) InvoiceRequestMapper.toEstimateRequest(
+                invoice, account, true, null).path("documents").get(0).path("line_items").get(0);
+
+        Assert.assertEquals(line.path("external_product_id").asText(), "EXTERNAL_CHARGE");
+        Assert.assertFalse(line.has("plan_name"));
+    }
+
 }

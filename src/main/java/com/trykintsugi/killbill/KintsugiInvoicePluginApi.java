@@ -38,11 +38,18 @@ import org.killbill.clock.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Invoice plugin that delegates tax calculation to the Kintsugi tax API. */
+/**
+ * Invoice plugin that delegates tax calculation to the Kintsugi tax API.
+ *
+ * <p>Sales path: taxable lines → estimate/commit → positive TAX.
+ * Return path (AvaTax parity): untaxed {@code ITEM_ADJ}/{@code REPAIR_ADJ} → return
+ * estimate → negative TAX linked to the adj item.
+ */
 public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(KintsugiInvoicePluginApi.class);
@@ -80,9 +87,11 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
             return emptyResult();
         }
 
-        if (InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice)) {
+        final boolean salesNeeded = !InvoiceTaxIdempotency.allTaxableItemsAlreadyTaxed(invoice);
+        final List<InvoiceItem> untaxedAdjustments = InvoiceTaxIdempotency.untaxedAdjustmentItems(invoice);
+        if (!salesNeeded && untaxedAdjustments.isEmpty()) {
             LOGGER.debug(
-                    "Skipping Kintsugi tax for invoice account {} — taxable lines already have TAX items",
+                    "Skipping Kintsugi tax for invoice account {} — sales and adjustments already taxed",
                     invoice.getAccountId());
             return emptyResult();
         }
@@ -99,28 +108,49 @@ public final class KintsugiInvoicePluginApi extends PluginInvoicePluginApi {
                     config,
                     tenantApiKey,
                     tenant.getApiSecret());
-            final ObjectNode requestBody = InvoiceRequestMapper.toEstimateRequest(
-                    invoice,
-                    account,
-                    dryRun,
-                    invoiceContext.getTenantId() != null ? invoiceContext.getTenantId().toString() : null,
-                    taxMetadata);
+            final String tenantIdStr = invoiceContext.getTenantId() != null
+                    ? invoiceContext.getTenantId().toString()
+                    : null;
 
             final KintsugiTaxClient client = new KintsugiTaxClient(
                     config.getKintsugiUrl(),
                     config.getHmacSecret(),
                     tenantApiKey);
 
-            final List<KintsugiTaxClient.TaxLineResult> taxLines =
-                    client.estimate(requestBody, !dryRun);
+            final Map<UUID, InvoiceItem> itemsById = TaxItemMapper.indexTaxableItems(invoice);
+            final List<InvoiceItem> taxItems = new ArrayList<>();
 
-            final Map<UUID, InvoiceItem> taxableById = TaxItemMapper.indexTaxableItems(invoice);
-            final List<InvoiceItem> taxItems = TaxItemMapper.toTaxItems(invoice, taxLines, taxableById);
+            if (salesNeeded) {
+                final ObjectNode salesBody = InvoiceRequestMapper.toEstimateRequest(
+                        invoice, account, dryRun, tenantIdStr, taxMetadata);
+                // Defense: never POST an empty sales document (adj/credit-only invoices).
+                if (salesBody.path("documents").path(0).path("line_items").size() > 0) {
+                    final List<KintsugiTaxClient.TaxLineResult> salesTaxLines =
+                            client.estimate(salesBody, !dryRun);
+                    taxItems.addAll(TaxItemMapper.toTaxItems(invoice, salesTaxLines, itemsById));
+                }
+            }
+
+            if (!untaxedAdjustments.isEmpty()) {
+                final ObjectNode returnBody = InvoiceRequestMapper.toReturnEstimateRequest(
+                        invoice, account, dryRun, tenantIdStr, taxMetadata, untaxedAdjustments);
+                if (returnBody != null) {
+                    final List<KintsugiTaxClient.TaxLineResult> returnTaxLines =
+                            client.estimate(returnBody, !dryRun);
+                    taxItems.addAll(TaxItemMapper.toTaxItems(invoice, returnTaxLines, itemsById));
+                } else {
+                    LOGGER.debug(
+                            "No return-tax lines for invoice account {} after lenient skip of unlinked adjs",
+                            invoice.getAccountId());
+                }
+            }
 
             LOGGER.info(
-                    "Kintsugi returned {} tax line(s) for invoice account {}",
+                    "Kintsugi returned {} tax line(s) for invoice account {} (salesNeeded={}, adjReturns={})",
                     taxItems.size(),
-                    invoice.getAccountId());
+                    invoice.getAccountId(),
+                    salesNeeded,
+                    untaxedAdjustments.size());
 
             return new KintsugiAdditionalItemsResult(taxItems);
         } catch (InvoicePluginApiRetryException e) {

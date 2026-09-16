@@ -80,9 +80,16 @@ public final class TaxItemMapper {
             final InvoiceItem linkedItem,
             final LocalDate invoiceDate,
             final KintsugiTaxClient.TaxLineResult taxLine) {
-        final String description = taxLine.ratePercent() != null
-                ? String.format("Sales tax (%.2f%%)", taxLine.ratePercent())
-                : "Sales tax";
+        final String description;
+        if (taxLine.taxAmount().compareTo(BigDecimal.ZERO) < 0) {
+            description = taxLine.ratePercent() != null
+                    ? String.format("Sales tax return (%.2f%%)", taxLine.ratePercent())
+                    : "Sales tax return";
+        } else {
+            description = taxLine.ratePercent() != null
+                    ? String.format("Sales tax (%.2f%%)", taxLine.ratePercent())
+                    : "Sales tax";
+        }
         return PluginInvoiceItem.createTaxItem(
                 linkedItem,
                 invoice.getId(),

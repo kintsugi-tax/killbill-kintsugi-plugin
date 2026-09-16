@@ -28,6 +28,7 @@ import org.killbill.billing.invoice.api.InvoiceItemType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,9 +37,12 @@ public final class InvoiceRequestMapper {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** Default product labels for external charges without a plan name. */
-    static final String EXTERNAL_CHARGE_CATEGORY = "Physical";
-    static final String EXTERNAL_CHARGE_SUBCATEGORY = "General Physical";
+    /**
+     * Shared product external id for plan-less {@code EXTERNAL_CHARGE} lines.
+     * Matches platform {@code EXTERNAL_CHARGE}; classification stays UNKNOWN/PENDING
+     * until the merchant sets it (Chargebee {@code adhoc_charge} pattern).
+     */
+    static final String EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID = "EXTERNAL_CHARGE";
 
     private InvoiceRequestMapper() {}
 
@@ -81,16 +85,7 @@ public final class InvoiceRequestMapper {
             if (item.getInvoiceItemType() != null) {
                 line.put("item_type", item.getInvoiceItemType().name());
             }
-            if (item.getPlanName() != null) {
-                line.put("plan_name", item.getPlanName());
-                line.put("external_product_id", item.getPlanName());
-            }
-            if (item.getPrettyProductName() != null) {
-                line.put("product_name", item.getPrettyProductName());
-            } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
-                line.put("product_category", EXTERNAL_CHARGE_CATEGORY);
-                line.put("product_subcategory", EXTERNAL_CHARGE_SUBCATEGORY);
-            }
+            putProductIdentity(line, item);
             final String taxCode = metadata.taxCodeForItem(item.getId());
             if (taxCode != null) {
                 line.put("tax_code", taxCode);
@@ -122,7 +117,8 @@ public final class InvoiceRequestMapper {
 
         if (invoice.getInvoiceNumber() != null) {
             final ObjectNode document = (ObjectNode) root.path("documents").get(0);
-            document.put("invoice_number", invoice.getInvoiceNumber());
+            // Stringify — platform invoice_number is str; Jackson ints fail validation.
+            document.put("invoice_number", String.valueOf(invoice.getInvoiceNumber()));
         }
 
         return root;
@@ -140,11 +136,152 @@ public final class InvoiceRequestMapper {
         return externalIds;
     }
 
+    /**
+     * Item types omitted from the <em>sales</em> estimate payload (TAX + adjustments).
+     * Return adjustments are mapped separately via {@link #toReturnEstimateRequest}.
+     */
     public static boolean isSkippedItemType(final InvoiceItemType type) {
         return type == InvoiceItemType.TAX
                 || type == InvoiceItemType.ITEM_ADJ
                 || type == InvoiceItemType.CREDIT_ADJ
                 || type == InvoiceItemType.REPAIR_ADJ;
+    }
+
+    /**
+     * AvaTax-parity return adjustment types. {@code CREDIT_ADJ} is excluded (same as AvaTax
+     * {@code PluginTaxCalculator}).
+     */
+    public static boolean isReturnAdjustmentItemType(final InvoiceItemType type) {
+        return type == InvoiceItemType.ITEM_ADJ || type == InvoiceItemType.REPAIR_ADJ;
+    }
+
+    /**
+     * Builds a return-tax estimate for untaxed {@code ITEM_ADJ}/{@code REPAIR_ADJ} lines.
+     * Document id is {@code {invoiceId}:adj-return} so platform commit can skip SALE persist.
+     *
+     * <p>Lenient mode (MVP): adjustments without a resolvable linked taxable item are skipped.
+     */
+    public static ObjectNode toReturnEstimateRequest(
+            final Invoice invoice,
+            final Account account,
+            final boolean dryRun,
+            final String tenantId,
+            final AccountTaxMetadata taxMetadata,
+            final List<InvoiceItem> untaxedAdjustments) {
+        final AccountTaxMetadata metadata = taxMetadata != null ? taxMetadata : AccountTaxMetadata.empty();
+        final Map<UUID, InvoiceItem> itemsById = indexItemsById(invoice);
+        final ArrayNode lineItems = MAPPER.createArrayNode();
+
+        for (final InvoiceItem adj : untaxedAdjustments) {
+            if (adj.getId() == null) {
+                continue;
+            }
+            // Lenient: missing linked original → skip (AvaTax adjustments.lenientMode=true).
+            if (adj.getLinkedItemId() == null || !itemsById.containsKey(adj.getLinkedItemId())) {
+                continue;
+            }
+            final InvoiceItem linked = itemsById.get(adj.getLinkedItemId());
+            BigDecimal amount = adj.getAmount() != null ? adj.getAmount() : BigDecimal.ZERO;
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                amount = amount.negate();
+            }
+            if (amount.compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
+
+            final ObjectNode line = MAPPER.createObjectNode();
+            line.put("external_id", adj.getId().toString());
+            line.put("amount", formatAmount(amount));
+            line.put("quantity", "1");
+            line.put("kind", "item");
+            line.put("invoice_item_id", adj.getId().toString());
+            if (adj.getInvoiceItemType() != null) {
+                line.put("item_type", adj.getInvoiceItemType().name());
+            }
+            if (adj.getDescription() != null) {
+                line.put("description", adj.getDescription());
+            } else {
+                line.put("description", "Invoice item adjustment");
+            }
+            // Same product identity rules as sales, from the linked taxable line.
+            putProductIdentity(line, linked);
+            final String taxCode = metadata.taxCodeForItem(linked.getId());
+            if (taxCode != null) {
+                line.put("tax_code", taxCode);
+            }
+            line.put("linked_invoice_item_id", adj.getLinkedItemId().toString());
+            lineItems.add(line);
+        }
+
+        if (lineItems.isEmpty()) {
+            return null;
+        }
+
+        final String documentId = (invoice.getId() != null ? invoice.getId().toString() : UUID.randomUUID().toString())
+                + ":adj-return";
+        final ObjectNode shipTo = resolveAddress(account, metadata);
+        final ObjectNode billTo = accountToAddress(account);
+        final ObjectNode customer = accountToCustomer(account, metadata);
+        final String transactionDate = formatInvoiceDate(invoice);
+
+        final ObjectNode root = KintsugiTaxClient.buildEstimateRequest(
+                UUID.randomUUID().toString(),
+                invoice.getCurrency().toString(),
+                documentId,
+                invoice.getAccountId().toString(),
+                dryRun,
+                lineItems,
+                shipTo,
+                billTo,
+                customer,
+                transactionDate);
+
+        if (tenantId != null && !tenantId.isBlank()) {
+            root.put("tenant_id", tenantId);
+        }
+        root.put("plugin_name", "killbill-kintsugi");
+
+        // Always attach document_kind; stringify invoice_number (Jackson would
+        // otherwise emit a JSON number that Pydantic str fields reject).
+        final ObjectNode document = (ObjectNode) root.path("documents").get(0);
+        document.put("document_kind", "return");
+        if (invoice.getInvoiceNumber() != null) {
+            document.put("invoice_number", String.valueOf(invoice.getInvoiceNumber()));
+        }
+
+        return root;
+    }
+
+
+    /**
+     * Map plan/product fields the same way for sales and return lines.
+     * Plan-less {@code EXTERNAL_CHARGE} points at the shared sentinel product id
+     * with no inline category — merchant classifies that SKU in Kintsugi.
+     */
+    private static void putProductIdentity(final ObjectNode line, final InvoiceItem item) {
+        // Product key from plan when present; else shared EXTERNAL_CHARGE sentinel.
+        // prettyProductName is display-only and must not gate the sentinel.
+        final String planName = item.getPlanName();
+        if (planName != null && !planName.isBlank()) {
+            line.put("plan_name", planName);
+            line.put("external_product_id", planName);
+        } else if (item.getInvoiceItemType() == InvoiceItemType.EXTERNAL_CHARGE) {
+            line.put("external_product_id", EXTERNAL_CHARGE_PRODUCT_EXTERNAL_ID);
+        }
+        final String prettyName = item.getPrettyProductName();
+        if (prettyName != null && !prettyName.isBlank()) {
+            line.put("product_name", prettyName);
+        }
+    }
+
+    private static Map<UUID, InvoiceItem> indexItemsById(final Invoice invoice) {
+        final Map<UUID, InvoiceItem> byId = new HashMap<>();
+        for (final InvoiceItem item : invoice.getInvoiceItems()) {
+            if (item.getId() != null) {
+                byId.put(item.getId(), item);
+            }
+        }
+        return byId;
     }
 
     private static boolean shouldSkipItem(final InvoiceItem item) {

@@ -81,8 +81,13 @@ public final class KintsugiTaxClient {
                 httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            final String body = response.body();
+            final String snippet = body == null
+                    ? ""
+                    : body.substring(0, Math.min(body.length(), 500));
             throw new IllegalStateException(
-                    "Kintsugi tax API returned HTTP " + response.statusCode());
+                    "Kintsugi tax API returned HTTP " + response.statusCode()
+                            + (snippet.isEmpty() ? "" : ": " + snippet));
         }
 
         return parseTaxLines(response.body());
