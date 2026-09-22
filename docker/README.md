@@ -14,7 +14,9 @@ against a local Kill Bill stack. No dependency on the Kintsugi platform repo.
 
 ```bash
 cp docker/.env.example docker/.env
-# Edit KINTSUGI_HMAC_SECRET (must match Kintsugi Kill Bill connection)
+# Edit KINTSUGI_HMAC_SECRET for this local stack (setup-tenant.sh uploads it)
+# For a real Kintsugi connection, Enable Tax Collection provisions HMAC instead —
+# only set this env when using the manual docker scripts below.
 # Edit KILLBILL_API_KEY / KILLBILL_API_SECRET for your tenant
 
 docker compose -f docker/docker-compose.yml up -d
@@ -58,14 +60,13 @@ Kintsugi provisions a **test org** for Kill Bill maintainers. You do not put `or
 |----------|-------------|
 | `KILLBILL_API_KEY` / `KILLBILL_API_SECRET` | Kill Bill tenant credentials (create in Kaui). **Must equal** the Kintsugi Kill Bill connection `external_id`. |
 | `KINTSUGI_URL` | Kintsugi API base URL reachable **from the Kill Bill container** |
-| `KINTSUGI_HMAC_SECRET` | HMAC secret from the Kintsugi Kill Bill connection (not an API key) |
+| `KINTSUGI_HMAC_SECRET` | Secret uploaded by `setup-tenant.sh` as plugin `hmacSecret`. Product path: Kintsugi **Enable Tax Collection** generates this; for docker smoke, put the same value on the test connection (or let enable-tax overwrite Kill Bill and skip re-running setup with a different secret). |
 | `SMOKE_TAX_STATE` | US state for smoke ship-to (default `TX`; needs tax registration in the test org) |
 
 **Test org checklist (Kintsugi side):**
 
-1. Kill Bill connection created with tax engine enabled
-2. Connection HMAC secret → `KINTSUGI_HMAC_SECRET`
-3. Connection tenant API key → `KILLBILL_API_KEY` (and matching Kill Bill tenant in Kaui)
+1. Kill Bill connection created with tax collection enabled (provisions HMAC + plugin config), **or** connection + matching `KINTSUGI_HMAC_SECRET` for manual docker setup
+2. Connection tenant API key → `KILLBILL_API_KEY` (and matching Kill Bill tenant in Kaui)
 
 For a Kintsugi API running on the host machine:
 

@@ -18,6 +18,6 @@ Per-tenant configuration:
 org.killbill.invoice.plugin=killbill-kintsugi
 ```
 
-Upload plugin config via `uploadPluginConfig/killbill-kintsugi` with `kintsugiUrl` and `hmacSecret`. See the plugin README for setup and verification steps.
+Upload plugin config via `uploadPluginConfig/killbill-kintsugi` with `kintsugiUrl` and `hmacSecret`. Prefer provisioning from Kintsugi (**Enable Tax Collection**), which generates the HMAC and uploads config; manual curl is for local/fallback. See the plugin README for setup and verification steps.
 
 Healthcheck: `GET /plugins/killbill-kintsugi/healthcheck`
