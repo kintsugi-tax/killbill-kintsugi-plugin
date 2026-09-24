@@ -12,12 +12,6 @@ Install:
 kpm install_java_plugin kintsugi --from-source-file=target/kintsugi-plugin-0.1.0.jar
 ```
 
-Per-tenant configuration:
+Per-tenant configuration is provisioned from Kintsugi: connect Kill Bill, then **Enable Tax Collection** (sets the invoice plugin and uploads `kintsugiUrl` / `hmacSecret`). See the plugin README for setup and verification steps.
 
-```properties
-org.killbill.invoice.plugin=killbill-kintsugi
-```
-
-Upload plugin config via `uploadPluginConfig/killbill-kintsugi` with `kintsugiUrl` and `hmacSecret`. Prefer provisioning from Kintsugi (**Enable Tax Collection**), which generates the HMAC and uploads config; manual curl is for local/fallback. See the plugin README for setup and verification steps.
-
-Healthcheck: `GET /plugins/killbill-kintsugi/healthcheck`
+Healthcheck: `GET /plugins/killbill-kintsugi/healthcheck` → `{"message":"Kintsugi plugin configured"}` (does not return config keys; use `GET .../uploadPluginConfig/killbill-kintsugi` to inspect).

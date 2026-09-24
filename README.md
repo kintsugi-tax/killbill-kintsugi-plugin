@@ -65,59 +65,19 @@ See [Kill Bill plugin installation](https://docs.killbill.io/latest/plugin_insta
 
 ## Tenant configuration
 
-### Recommended: provision from Kintsugi
-
-After the plugin JAR is installed and running on Kill Bill:
+After the plugin JAR is installed and running on Kill Bill, configure the tenant from Kintsugi (no manual `uploadPluginConfig` / `uploadPerTenantConfig` curls):
 
 1. In Kintsugi, **Connect Kill Bill** (base URL, tenant API key/secret, admin username/password).
 2. Click **Enable Tax Collection** on the connection.
 
-Kintsugi then:
+Kintsugi then generates an HMAC secret (if needed), uploads plugin config (`kintsugiUrl` + `hmacSecret`), and enables `killbill-kintsugi` as the tenant invoice plugin. You do not paste secrets by hand.
 
-- Generates an HMAC secret for the connection (if one is not already set)
-- Uploads `kintsugiUrl` + `hmacSecret` via `uploadPluginConfig/killbill-kintsugi`
-- Enables `killbill-kintsugi` as the tenant invoice plugin (`uploadPerTenantConfig`)
-
-You do not need to create or paste an HMAC secret manually.
-
-### Manual / local fallback
-
-Use these curls only for local docker tooling, debugging, or environments where Kintsugi cannot reach Kill Bill to provision.
-
-#### 1. Enable the invoice plugin
-
-Kill Bill 0.24+ expects JSON for per-tenant config:
-
-```bash
-curl -u '<killbill-admin-user>:<killbill-admin-password>' \
-  -H 'X-Killbill-ApiKey: <tenant-api-key>' \
-  -H 'X-Killbill-ApiSecret: <tenant-api-secret>' \
-  -H 'Content-Type: text/plain' \
-  -H 'X-Killbill-CreatedBy: setup' \
-  -d '{"org.killbill.invoice.plugin":"killbill-kintsugi"}' \
-  'https://<killbill-host>/1.0/kb/tenants/uploadPerTenantConfig'
-```
-
-#### 2. Upload plugin config
-
-```bash
-curl -u '<killbill-admin-user>:<killbill-admin-password>' \
-  -H 'X-Killbill-ApiKey: <tenant-api-key>' \
-  -H 'X-Killbill-ApiSecret: <tenant-api-secret>' \
-  -H 'Content-Type: text/plain' \
-  -H 'X-Killbill-CreatedBy: setup' \
-  -d 'kintsugiUrl: https://api.trykintsugi.com
-hmacSecret: <shared-hmac-secret>' \
-  'https://<killbill-host>/1.0/kb/tenants/uploadPluginConfig/killbill-kintsugi'
-```
-
-
-YAML POJO form is also supported — see `KintsugiConfigurationHandler` in this repo.
+For local docker / maintainer smoke tests that talk to Kill Bill without the product UI, see [docker/README.md](docker/README.md).
 
 | Config key | Required | Description |
 |------------|----------|-------------|
-| `kintsugiUrl` | Yes | Kintsugi API base URL (no trailing slash), e.g. `https://api.trykintsugi.com` |
-| `hmacSecret` | Yes | Shared secret for request signatures; provisioned by Kintsugi on enable-tax (manual upload only for local/fallback) |
+| `kintsugiUrl` | Yes | Kintsugi API base URL (no trailing slash), e.g. `https://api.trykintsugi.com` — set by Enable Tax |
+| `hmacSecret` | Yes | Shared secret for request signatures — generated and uploaded by Enable Tax |
 | `killbillUrl` | No | Kill Bill base URL for optional Aviate billing-account lookup (default `http://127.0.0.1:8080`) |
 | `aviateIdToken` | No | Aviate JWT ([Aviate auth](https://docs.killbill.io/latest/aviate-authentication)). When set, the plugin reads [billing accounts](https://docs.killbill.io/latest/aviate-billing-account) before falling back to custom fields. Omit for non-Aviate deployments. |
 
@@ -131,12 +91,6 @@ curl -u '<killbill-admin-user>:<killbill-admin-password>' \
   -H 'X-Killbill-ApiSecret: <tenant-api-secret>' \
   'https://<killbill-host>/1.0/kb/tenants/uploadPluginConfig/killbill-kintsugi'
 ```
-
-## Kintsugi setup
-
-1. Install this plugin on Kill Bill (see above).
-2. In Kintsugi: **Connect Kill Bill** with base URL, tenant API key/secret, and admin credentials.
-3. **Enable Tax Collection** on the connection — Kintsugi provisions HMAC + plugin config.
 
 See [Kintsugi documentation](https://trykintsugi.com/docs) for the full setup guide.
 
@@ -179,11 +133,11 @@ See [docker/README.md](docker/README.md) for step-by-step scripts, configuration
 | Symptom | Likely cause |
 |---------|----------------|
 | No `TAX` lines on invoice | Tax collection not enabled in Kintsugi, or ship-to address has no tax obligation |
-| `401` / `403` from Kintsugi | HMAC mismatch — re-run **Enable Tax Collection** (re-uploads matching secret), or align manual `hmacSecret` with the connection |
-| `Kintsugi plugin not configured` in logs | Missing `uploadPluginConfig/killbill-kintsugi` for the tenant (enable tax from Kintsugi, or upload manually) |
+| `401` / `403` from Kintsugi | HMAC mismatch — re-run **Enable Tax Collection** (re-uploads matching secret) |
+| `Kintsugi plugin not configured` in logs | Tenant plugin config missing — re-run **Enable Tax Collection** |
 | Connection timeout | Kill Bill cannot reach `kintsugiUrl` (DNS, firewall, or Docker networking) |
-| Healthcheck unhealthy | Plugin config missing `kintsugiUrl` or `hmacSecret` for the tenant |
-| Expected config keys in healthcheck body | Wrong endpoint — healthcheck only returns `{"message":"..."}`; use `GET .../uploadPluginConfig/killbill-kintsugi` |
+| Healthcheck unhealthy | Plugin config missing `kintsugiUrl` or `hmacSecret` for the tenant — re-run **Enable Tax Collection** |
+| Expected config keys in healthcheck body | Wrong endpoint — healthcheck only returns `{"message":"..."}`; use `GET .../uploadPluginConfig/killbill-kintsugi` to inspect |
 
 ## Behavior notes
 
