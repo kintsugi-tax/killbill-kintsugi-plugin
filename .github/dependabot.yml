@@ -4,8 +4,14 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+      semver-minor-days: 7
+      semver-patch-days: 5
     open-pull-requests-limit: 5
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
